@@ -50,6 +50,8 @@ export interface BotDeps {
   /** Triggers a scan in-process; returns a human summary. */
   scan: () => Promise<string>;
   stats: () => string;
+  /** Called once when the owner chat is bound via /start (e.g. to flush queued cards). */
+  onBound?: () => Promise<unknown>;
   log?: (message: string) => void;
 }
 
@@ -88,17 +90,20 @@ export function createBot(deps: BotDeps): Bot {
     const owner = store.getKv(CHAT_KV);
     const chatId = ctx.chat?.id;
     if (chatId === undefined) return;
+    let justBound = false;
     if (!owner) {
       if (ctx.message?.text?.startsWith('/start')) {
         store.setKv(CHAT_KV, String(chatId));
         store.log('tg_bound', null, { chatId });
         log(`bound to chat ${chatId}`);
+        justBound = true;
       } else return;
     } else if (owner !== String(chatId)) {
       log(`ignored update from foreign chat ${chatId}`);
       return;
     }
     await next();
+    if (justBound) await deps.onBound?.().catch((error: unknown) => log(`onBound failed: ${String(error)}`));
   });
 
   bot.command(['start', 'help'], (ctx) => ctx.reply(HELP));

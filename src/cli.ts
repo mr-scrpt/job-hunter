@@ -79,6 +79,7 @@ async function main(): Promise<void> {
         resume: app.resume,
         scan,
         stats: () => formatStats(store),
+        onBound: () => deliverReady(store, app.notifier, log),
         log,
       });
       await bot.api.setMyCommands([
