@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseEnglishRequirement } from '../src/core/english.ts';
-import { containsWord, matchKey, rejectReason } from '../src/core/filter.ts';
+import { containsWord, describeReason, matchKey, rejectReason } from '../src/core/filter.ts';
 import { decodeEntities, htmlToText } from '../src/core/text.ts';
 import { parseCefr } from '../src/schemas/cefr.ts';
 import { ProfileSchema } from '../src/schemas/profile.ts';
@@ -49,6 +49,14 @@ describe('rejectReason', () => {
   });
   it('drops office-only when remote is required', () =>
     assert.equal(rejectReason(vacancy({ meta: { remote: false } }), filters, NOW), 'not-remote'));
+});
+
+describe('describeReason', () => {
+  it('words reasons for the chat', () => {
+    assert.equal(describeReason('english:B1'), 'английский B1');
+    assert.equal(describeReason('title:PHP'), '«PHP» в названии');
+    assert.equal(describeReason('not-remote'), 'не удалёнка');
+  });
 });
 
 describe('containsWord', () => {

@@ -9,13 +9,14 @@ candidate:
     Шукаю Fullstack / Backend (Node.js) / Frontend (React) позицію на TypeScript, рівень Middle+/Senior.
     Пріоритет — продукти з AI: LLM, агенти, RAG, MCP, agentic-розробка.
     Тільки віддалено. Українські компанії або компанії з україномовною командою.
+    Англійська — тільки читання технічної документації, розмовної немає. Не підходять вакансії, де потрібні дзвінки, мітинги чи листування англійською, англомовна команда або співбесіда англійською.
 
   # Never named in letters: employers, clients, industries. Experience is described neutrally instead.
   # Matching is case-insensitive from the word start, so a stem covers its forms ("факторинг" → "факторингу").
   neverMention: [Initech, Umbrella, GLOBEX, proptech, мікрокредит, lending, ломбард, pawnshop, факторинг, factoring, Contoso, ACME CORP, ACMECORP, HOOLI, VANDELAY]
 
 filters:
-  englishMax: B1          # postings that explicitly require more are dropped before Claude
+  englishMax: A2          # reading only: anything needing B1+ is dropped, before Claude (stated level) and after (Claude's estimate)
   minSalaryUsd: 0         # 0 = don't filter by salary
   remoteOnly: true
   maxAgeDays: 3
@@ -34,10 +35,10 @@ sources:
     common: {}
     feeds:
       # English filter is applied by Djinni where it works; keyword queries ignore it, we re-check ourselves.
-      - { primary_keyword: JavaScript, english_level: [no_english, basic, pre, intermediate] }
-      - { primary_keyword: Node.js,    english_level: [no_english, basic, pre, intermediate] }
-      - { primary_keyword: Fullstack,  english_level: [no_english, basic, pre, intermediate] }
-      - { primary_keyword: React.js,   english_level: [no_english, basic, pre, intermediate] }
+      - { primary_keyword: JavaScript, english_level: [no_english, basic, pre] }
+      - { primary_keyword: Node.js,    english_level: [no_english, basic, pre] }
+      - { primary_keyword: Fullstack,  english_level: [no_english, basic, pre] }
+      - { primary_keyword: React.js,   english_level: [no_english, basic, pre] }
       - { primary_keyword: ML AI, any_of_keywords: "TypeScript Node.js React" }
   dou:
     enabled: true

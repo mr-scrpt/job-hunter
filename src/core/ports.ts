@@ -126,4 +126,6 @@ export interface Notifier {
    * Returns false when delivery is not configured, so they stay queued as `ready`.
    */
   announce(fresh: StoredVacancy[], note?: string): Promise<boolean>;
+  /** Re-renders the review queue after it changed without user action, with a one-line note. */
+  refresh?(note: string): Promise<void>;
 }

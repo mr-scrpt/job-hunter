@@ -89,5 +89,6 @@ Commands: `/list` (re-post the deck at the bottom), `/scan`, `/stats`, `/help`.
 
 - Too much noise → raise `scoring.notifyThreshold`, add `filters.titleStopWords`.
 - Too little → lower the threshold (already-rated vacancies are promoted without re-rating), add feeds.
-- `filters.englishMax` drops postings that explicitly ask for more; Claude also estimates the real requirement from the text.
+- `filters.englishMax` drops postings that explicitly ask for more; Claude also estimates the real requirement from the text (calls, English-speaking team → at least B1).
+- Filter changes apply to the queue too: on the next scan, queued vacancies that no longer pass are removed and the deck says which and why. Links you pasted yourself are never removed.
 - Feed parameters are Djinni/DOU URL query params; build a search on the site and copy them.

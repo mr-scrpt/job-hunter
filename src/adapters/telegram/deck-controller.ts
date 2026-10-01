@@ -118,6 +118,10 @@ export class TelegramNotifier implements Notifier {
     if (!this.deck.chatId) return false;
     return this.deck.show({ repost: true, note: announcement(fresh.length, this.deck.queue().length) });
   }
+
+  async refresh(note: string): Promise<void> {
+    if (this.deck.chatId) await this.deck.show({ note });
+  }
 }
 
 /** Notifier used when no token is configured: vacancies stay queued as `ready`. */

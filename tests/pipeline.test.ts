@@ -189,6 +189,36 @@ describe('pipeline', () => {
     assert.deepEqual(assessed, ['djinni:1']);
   });
 
+  it('drops queued vacancies that no longer pass changed filters, keeps manual picks, and says so', async () => {
+    const notes: string[] = [];
+    const notifier: Notifier = { announce: async () => true, refresh: async (note) => void notes.push(note) };
+    const { store, deps } = setup({
+      items: [vacancy('1', { meta: { english: 'B1' } }), vacancy('2')],
+      scores: { 'djinni:2': assessment(80, { englishRequired: 'B1' }) },
+      notifier,
+    });
+    await runScan(deps);
+    await addFromUrl(deps, 'https://djinni.co/jobs/3-x/');
+    store.update('djinni:3', { meta: { english: 'C1' } });
+    assert.deepEqual(store.listByStatus(['notified']).map((v) => v.key).sort(), ['djinni:1', 'djinni:2', 'djinni:3']);
+
+    const stricter = { ...profile, filters: { ...profile.filters, englishMax: 'A2' as const } };
+    const report = await runScan({ ...deps, profile: stricter });
+    assert.ok(report !== 'locked');
+    assert.equal(report.unqueued, 2);
+    assert.equal(store.get('djinni:1')?.reason, 'english:B1'); // stated on the page
+    assert.equal(store.get('djinni:2')?.reason, 'english:B1'); // inferred by Claude
+    assert.equal(store.get('djinni:3')?.status, 'notified'); // pasted by the user: untouched
+    assert.match(notes[0] ?? '', /Убрал из очереди 2 вакансии.*английский B1/);
+  });
+
+  it('does not drop queued vacancies just because they got older', async () => {
+    const { store, deps } = setup({ items: [vacancy('1')] });
+    await runScan(deps);
+    await runScan({ ...deps, now: () => new Date('2026-10-20T10:00:00Z') });
+    assert.equal(store.get('djinni:1')?.status, 'notified');
+  });
+
   it('refuses to run concurrently', async () => {
     const { store, deps } = setup({ items: [] });
     assert.equal(store.acquireLock('scan', 60_000), true);

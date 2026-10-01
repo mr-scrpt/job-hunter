@@ -1,10 +1,12 @@
 import type { Assessment } from '../schemas/assessment.ts';
 import { cefrRank } from '../schemas/cefr.ts';
 import type { Profile } from '../schemas/profile.ts';
-import { matchKey, rejectReason } from './filter.ts';
+import { plural } from './deck.ts';
+import { assessedRejectReason, describeReason, matchKey, rejectReason } from './filter.ts';
 import { writeCheckedLetter } from './letter.ts';
 import type { Llm, Notifier, Store, StoredVacancy, VacancySource } from './ports.ts';
 import { mapPool } from './pool.ts';
+import { truncate } from './text.ts';
 
 /** Thrown by an Llm adapter when calls cannot succeed right now (usage limit, auth). */
 export class LlmUnavailableError extends Error {
@@ -35,6 +37,8 @@ export interface ScanReport {
   notified: number;
   errors: number;
   deferred: number;
+  /** Queued vacancies dropped because they no longer pass the (changed) filters. */
+  unqueued: number;
   sourceErrors: string[];
   llmUnavailable: boolean;
 }
@@ -67,6 +71,7 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
     notified: 0,
     errors: 0,
     deferred: 0,
+    unqueued: 0,
     sourceErrors: [],
     llmUnavailable: false,
   };
@@ -127,6 +132,9 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
     candidates.push(vacancy);
   }
 
+  // 2b. Filters may have changed since these were queued: drop what no longer fits. Manual picks stay.
+  report.unqueued = await recheckQueue(deps, now(), log);
+
   // 3. LLM: assess, then write letters for the ones worth it.
   const budget = candidates.slice(0, profile.scoring.maxAssessPerRun);
   report.deferred = candidates.length - budget.length;
@@ -136,7 +144,7 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
   const promotable = store
     .listByStatus(['low'])
     .filter((v) => v.assessment && v.reason?.startsWith('score:') && (v.score ?? 0) >= profile.scoring.notifyThreshold)
-    .filter((v) => !rejectReason(v, profile.filters, now()));
+    .filter((v) => !assessedRejectReason(v, profile.filters, now(), { checkAge: true }));
 
   const tasks: Array<{ vacancy: StoredVacancy; run: () => Promise<void> }> = [
     ...promotable.map((v) => ({ vacancy: v, run: () => writeLetterFor(v, v.assessment!, deps, report) })),
@@ -167,6 +175,29 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
 
   store.setKv('last_scan', JSON.stringify({ at: now().toISOString(), ...report }));
   return report;
+}
+
+async function recheckQueue(deps: PipelineDeps, now: Date, log: (m: string) => void): Promise<number> {
+  const { store, profile } = deps;
+  const dropped: Array<{ title: string; reason: string }> = [];
+  for (const v of store.listByStatus(['ready', 'notified'])) {
+    if (v.reason === 'manual') continue;
+    const reason = assessedRejectReason(v, profile.filters, now);
+    if (!reason) continue;
+    store.update(v.key, { status: 'filtered', reason });
+    store.log('unqueued', v.key, reason);
+    dropped.push({ title: v.title, reason });
+  }
+  if (dropped.length && deps.notifier.refresh) {
+    const list = dropped.map((d) => `${d.title} (${describeReason(d.reason)})`).join('; ');
+    const word = plural(dropped.length, ['вакансию', 'вакансии', 'вакансий']);
+    try {
+      await deps.notifier.refresh(truncate(`Убрал из очереди ${dropped.length} ${word} по новым фильтрам: ${list}`, 400));
+    } catch (error) {
+      log(`queue refresh failed — ${errorText(error)}`);
+    }
+  }
+  return dropped.length;
 }
 
 async function processWithLlm(vacancy: StoredVacancy, deps: PipelineDeps, report: ScanReport): Promise<void> {

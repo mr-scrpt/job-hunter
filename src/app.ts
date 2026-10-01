@@ -102,6 +102,7 @@ export function formatReport(report: ScanReport | 'locked'): string {
     `Отправлено карточек: ${report.notified}`,
   ];
   if (report.deferred) lines.push(`Отложено до следующей проверки: ${report.deferred}`);
+  if (report.unqueued) lines.push(`Убрано из очереди по новым фильтрам: ${report.unqueued}`);
   if (report.errors) lines.push(`Ошибок обработки: ${report.errors}`);
   if (report.llmUnavailable) lines.push('⚠️ Claude недоступен (лимит подписки или нет входа) — продолжу позже.');
   for (const e of report.sourceErrors) lines.push(`⚠️ Источник: ${e}`);
