@@ -2,7 +2,7 @@
 
 Personal job-search assistant for the Ukrainian IT market.
 
-Every 30 minutes it reads the Djinni and DOU vacancy feeds, drops what clearly doesn't fit, asks Claude to rate the rest against the CV, writes a tailored cover letter (in Ukrainian) for the good ones and sends a card to Telegram. You read the card, copy the letter, apply on the site and press "✅ Отправил".
+Every 30 minutes it reads the Djinni and DOU vacancy feeds, drops what clearly doesn't fit, asks Claude to rate the rest against the CV, writes a tailored cover letter (in Ukrainian) for the good ones and queues them in a single Telegram message you browse with ◀️ ▶️. You read the vacancy, tweak the letter by just writing in the chat, copy it, apply on the site and press "✅ Отправил".
 
 Applying itself stays manual on purpose: DOU forbids automated applications, and a human glance per vacancy keeps the quality up.
 
@@ -14,7 +14,7 @@ RSS (Djinni, DOU) ──► rules filter ──► page enrichment ──► rul
                         stop-words,       salary, English)      salary, remote)
                         company)
         ──► Claude: assess (score, role, AI focus, English) ──► below threshold → archived
-                                                         └──► Claude: letter ──► Telegram card
+                                                         └──► Claude: letter ──► Telegram deck
 ```
 
 - **Claude** runs through the local `claude -p` CLI, billed to the logged-in subscription — no API key. Calls are isolated: no tools, no user settings/hooks/MCP, no session files, strict JSON schema output.
@@ -44,7 +44,7 @@ npm install
 cp config/profile.example.yaml config/profile.yaml   # edit: CV path, filters, feeds
 npm test
 npm run scan -- --limit 5                             # dry run without Telegram
-npm run show                                          # print the best cards
+npm run show                                          # print the best vacancies with letters
 ```
 
 ### Telegram
@@ -79,7 +79,7 @@ Commands: `/list` (re-post the deck at the bottom), `/scan`, `/stats`, `/help`.
 | `npm run scan [-- --limit N]` | one pipeline run |
 | `npm run bot` | bot + scheduled scans (what the service runs) |
 | `npm run stats` | counters |
-| `npm run show [-- 10 low]` | top cards by score, any status list (`ready,notified`, `low`, …) |
+| `npm run show [-- 10 low]` | top vacancies by score, any status list (`ready,notified`, `low`, …) |
 | `npm run why -- djinni:850653` | everything stored about one vacancy |
 | `node src/cli.ts relint` | regenerate open letters that mention `candidate.neverMention` terms, refresh the deck |
 
