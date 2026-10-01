@@ -21,6 +21,11 @@ export const ProfileSchema = z.object({
     englishLevel: CefrSchema,
     /** Free text the model reads: what roles you want, what to avoid, priorities. */
     preferences: z.string().default(''),
+    /**
+     * Never mentioned in letters: employer names, industries you don't want to advertise.
+     * The model is told to describe that experience neutrally; letters are checked and fixed if they slip.
+     */
+    neverMention: z.array(z.string().min(1)).default([]),
   }),
   filters: z.object({
     /** Vacancies explicitly requiring a higher English level are dropped before the LLM. */

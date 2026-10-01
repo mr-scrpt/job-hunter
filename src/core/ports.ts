@@ -80,6 +80,8 @@ export interface LetterInput {
   assessment: Assessment;
   previousLetter?: string;
   feedback?: string;
+  /** Words that must never appear in the letter (employer names, industries the candidate hides). */
+  forbiddenTerms?: string[];
 }
 
 export interface Llm {

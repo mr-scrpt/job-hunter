@@ -10,6 +10,10 @@ candidate:
     Пріоритет — продукти з AI: LLM, агенти, RAG, MCP, agentic-розробка.
     Тільки віддалено. Українські компанії або компанії з україномовною командою.
 
+  # Never named in letters: employers, clients, industries. Experience is described neutrally instead.
+  # Matching is case-insensitive from the word start, so a stem covers its forms ("факторинг" → "факторингу").
+  neverMention: [Initech, Umbrella, GLOBEX, proptech, мікрокредит, lending, ломбард, pawnshop, факторинг, factoring, Contoso, ACME CORP, ACMECORP, HOOLI, VANDELAY]
+
 filters:
   englishMax: B1          # postings that explicitly require more are dropped before Claude
   minSalaryUsd: 0         # 0 = don't filter by salary

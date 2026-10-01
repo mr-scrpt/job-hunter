@@ -71,8 +71,11 @@ Bot commands: `/scan` (check now), `/stats`, `/help`. Card buttons: ✅ Отпр
 | `npm run stats` | counters |
 | `npm run show [-- 10 low]` | top cards by score, any status list (`ready,notified`, `low`, …) |
 | `npm run why -- djinni:850653` | everything stored about one vacancy |
+| `node src/cli.ts relint` | regenerate open letters that mention `candidate.neverMention` terms, edit the cards in Telegram |
 
 ## Tuning
+
+- `candidate.neverMention`: employers, clients and industries that must never appear in a letter. The model gets the list, every letter is checked, and a slip is sent back for a targeted fix (letter is rejected after 2 failed fixes).
 
 - Too much noise → raise `scoring.notifyThreshold`, add `filters.titleStopWords`.
 - Too little → lower the threshold (already-rated vacancies are promoted without re-rating), add feeds.

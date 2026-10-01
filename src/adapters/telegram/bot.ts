@@ -1,6 +1,7 @@
 import { Bot, GrammyError, type Context } from 'grammy';
 import type { InlineKeyboardButton } from 'grammy/types';
 import { decodeCallback, encodeCallback, renderCard, type Card, type CardAction } from '../../core/card.ts';
+import { writeCheckedLetter } from '../../core/letter.ts';
 import type { Llm, Notifier, Store, StoredVacancy } from '../../core/ports.ts';
 
 export const CHAT_KV = 'tg_chat_id';
@@ -36,6 +37,19 @@ export class TelegramNotifier implements Notifier {
     const message = await this.#bot.api.sendMessage(chatId, card.html, messageOptions(card, vacancy.key));
     return message.message_id;
   }
+
+  /** Re-renders an already delivered card in place (e.g. after its letter was regenerated). */
+  async editCard(vacancy: StoredVacancy): Promise<boolean> {
+    const chatId = this.#store.getKv(CHAT_KV);
+    if (!chatId || !vacancy.tgMessageId) return false;
+    const card = renderCard(vacancy);
+    try {
+      await this.#bot.api.editMessageText(chatId, vacancy.tgMessageId, card.html, messageOptions(card, vacancy.key));
+    } catch (error) {
+      if (!(error instanceof GrammyError && error.description.includes('message is not modified'))) throw error;
+    }
+    return true;
+  }
 }
 
 /** Notifier used when no token is configured: cards stay queued as `ready`. */
@@ -46,6 +60,7 @@ export interface BotDeps {
   store: Store;
   llm: Llm;
   candidateName: string;
+  neverMention: string[];
   resume: string;
   /** Triggers a scan in-process; returns a human summary. */
   scan: () => Promise<string>;
@@ -158,14 +173,18 @@ export function createBot(deps: BotDeps): Bot {
     const feedback = ctx.message.text.trim();
     await ctx.reply('Переписываю…');
     try {
-      const letter = await llm.writeLetter({
-        vacancy,
-        resume: deps.resume,
-        candidateName: deps.candidateName,
-        assessment: vacancy.assessment,
-        previousLetter: vacancy.letter ?? undefined,
-        feedback: feedback === '-' ? undefined : feedback,
-      });
+      const letter = await writeCheckedLetter(
+        llm,
+        {
+          vacancy,
+          resume: deps.resume,
+          candidateName: deps.candidateName,
+          assessment: vacancy.assessment,
+          previousLetter: vacancy.letter ?? undefined,
+          feedback: feedback === '-' ? undefined : feedback,
+        },
+        deps.neverMention,
+      );
       store.update(vacancy.key, { letter });
       store.log('rewritten', vacancy.key, { feedback });
       const updated = { ...vacancy, letter };

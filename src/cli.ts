@@ -1,6 +1,7 @@
 import { createApp, formatReport, formatStats } from './app.ts';
-import { createBot } from './adapters/telegram/bot.ts';
+import { createBot, TelegramNotifier } from './adapters/telegram/bot.ts';
 import { renderCard } from './core/card.ts';
+import { findForbiddenTerms, writeCheckedLetter } from './core/letter.ts';
 import { deliverReady, runScan } from './core/pipeline.ts';
 import { decodeEntities } from './core/text.ts';
 import type { Status } from './core/ports.ts';
@@ -11,7 +12,8 @@ const USAGE = `job-hunter <command>
   bot                Telegram bot + scheduled scans (long-running)
   stats              counters
   show [N] [status]  print the N best cards to the terminal (default: 5, ready+notified)
-  why <key>          show stored data for one vacancy, e.g. why djinni:850653`;
+  why <key>          show stored data for one vacancy, e.g. why djinni:850653
+  relint             rewrite open letters that mention candidate.neverMention terms`;
 
 const htmlToTerminal = (html: string): string => decodeEntities(html.replace(/<[^>]+>/g, ''));
 
@@ -66,6 +68,26 @@ async function main(): Promise<void> {
       break;
     }
 
+    case 'relint': {
+      // Open cards whose letters mention a term from candidate.neverMention get a fresh letter, edited in place.
+      const terms = profile.candidate.neverMention;
+      const open = store.listByStatus(['ready', 'notified']).filter((v) => v.letter && v.assessment);
+      const dirty = open.filter((v) => findForbiddenTerms(v.letter!, terms).length > 0);
+      console.log(`Открытых карточек: ${open.length}, с запрещёнными словами: ${dirty.length}`);
+      for (const v of dirty) {
+        const letter = await writeCheckedLetter(
+          app.llm,
+          { vacancy: v, resume: app.resume, candidateName: profile.candidate.name, assessment: v.assessment! },
+          terms,
+        );
+        store.update(v.key, { letter });
+        store.log('relinted', v.key);
+        const edited = app.notifier instanceof TelegramNotifier && (await app.notifier.editCard({ ...v, letter }));
+        console.log(`${'─'.repeat(70)}\n${v.key}${edited ? ' (обновлено в Telegram)' : ''}\n${letter}\n`);
+      }
+      break;
+    }
+
     case 'bot': {
       if (!app.token) throw new Error('No bot token: put it into ~/.local/share/secrets/job-hunter.token (or JOB_HUNTER_TG_TOKEN).');
       const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
@@ -76,6 +98,7 @@ async function main(): Promise<void> {
         store,
         llm: app.llm,
         candidateName: profile.candidate.name,
+        neverMention: profile.candidate.neverMention,
         resume: app.resume,
         scan,
         stats: () => formatStats(store),

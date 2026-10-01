@@ -72,6 +72,15 @@ export class ClaudeCli implements Llm {
     ];
     if (input.previousLetter) parts.push(section('Предыдущий вариант письма', input.previousLetter));
     if (input.feedback) parts.push(section('Что исправить (пожелание кандидата, приоритетно)', input.feedback));
+    if (input.forbiddenTerms?.length)
+      parts.push(
+        section(
+          'Заборонено згадувати',
+          `Ці слова (і будь-які їхні форми) не можна вживати в листі: ${input.forbiddenTerms.join(', ')}.\n` +
+            'Досвід, пов\u2019язаний з ними, описуй нейтрально, без назв компаній і без назви галузі ' +
+            '(наприклад: «високонавантажені платформи з платіжними інтеграціями», «маркетингові лендінги для великих брендів»).',
+        ),
+      );
 
     const output = await this.#run(this.#opts.letterModel, this.#letterSystem, parts.join('\n\n'), this.#letterSchema);
     return LetterSchema.parse(output).letter.trim();

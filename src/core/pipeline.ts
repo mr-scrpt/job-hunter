@@ -2,6 +2,7 @@ import type { Assessment } from '../schemas/assessment.ts';
 import { cefrRank } from '../schemas/cefr.ts';
 import type { Profile } from '../schemas/profile.ts';
 import { matchKey, rejectReason } from './filter.ts';
+import { writeCheckedLetter } from './letter.ts';
 import type { Llm, Notifier, Store, StoredVacancy, VacancySource } from './ports.ts';
 import { mapPool } from './pool.ts';
 
@@ -203,7 +204,11 @@ async function processWithLlm(vacancy: StoredVacancy, deps: PipelineDeps, report
 
 async function writeLetterFor(vacancy: StoredVacancy, assessment: Assessment, deps: PipelineDeps, report: ScanReport): Promise<void> {
   const { store, llm, profile, resume } = deps;
-  const letter = await llm.writeLetter({ vacancy, resume, candidateName: profile.candidate.name, assessment });
+  const letter = await writeCheckedLetter(
+    llm,
+    { vacancy, resume, candidateName: profile.candidate.name, assessment },
+    profile.candidate.neverMention,
+  );
   store.update(vacancy.key, { status: 'ready', reason: null, score: assessment.score, assessment, letter });
   report.ready++;
 }
