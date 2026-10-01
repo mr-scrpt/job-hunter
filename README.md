@@ -72,6 +72,15 @@ All vacancies waiting for a decision live in **one message** (the deck): `Вак
 
 Commands: `/list` (re-post the deck at the bottom), `/scan`, `/stats`, `/help`.
 
+### Always-on host
+
+Production runs on the Proxmox VM `claude-station` (ssh alias `station`, user `arch`), so scans continue while the workstation is off.
+
+- First time: copy the personal files that are not in git — `config/profile.yaml`, the CV (path from the profile), `~/.local/share/secrets/job-hunter.token` — and enable lingering (`loginctl enable-linger`) so the user service runs without a login.
+- Claude on a headless box: run `claude setup-token` once (1-year token) and store it as `CLAUDE_CODE_OAUTH_TOKEN=...` in `~/.local/share/secrets/claude-oauth.env` (mode 600); the unit loads it.
+- Updates: commit, then `deploy/deploy.sh` (pushes HEAD to the `station` remote, `npm ci`, tests, restarts the unit).
+- Only one bot may poll Telegram per token: stop the service on the workstation before starting it elsewhere.
+
 ## CLI
 
 | command | what |

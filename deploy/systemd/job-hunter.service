@@ -6,7 +6,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/Hellkitchen/solution/job-hunter
-# mise puts node (from .mise.toml) and the claude CLI (global config) on PATH.
+# Headless hosts authenticate Claude with a long-lived token from `claude setup-token`:
+#   CLAUDE_CODE_OAUTH_TOKEN=... in this file (mode 600). Optional: a desktop login works without it.
+EnvironmentFile=-%h/.local/share/secrets/claude-oauth.env
+# The native claude installer puts the binary in ~/.local/bin, which systemd's PATH lacks.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# mise puts node (from .mise.toml) on PATH.
 ExecStart=/usr/bin/mise exec -- node --disable-warning=ExperimentalWarning src/cli.ts bot
 Restart=on-failure
 RestartSec=30
