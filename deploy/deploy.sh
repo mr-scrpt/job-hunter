@@ -18,7 +18,7 @@ git push -q "$HOST" HEAD:refs/heads/main
 ssh "$HOST" bash -lc "'
   set -e
   cd $DIR
-  git pull -q --ff-only
+  git fetch -q origin && git reset -q --hard origin/main
   mise exec -- npm ci --no-audit --no-fund --silent
   mise exec -- npm test 2>&1 | grep -E \"^ℹ (pass|fail)\"
   mkdir -p ~/.config/systemd/user
