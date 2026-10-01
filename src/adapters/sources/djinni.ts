@@ -37,6 +37,41 @@ export class DjinniSource implements VacancySource {
     const page = parseDjinniJobPage(html);
     return { ...vacancy, company: page.company ?? vacancy.company, meta: { ...vacancy.meta, ...page.meta } };
   }
+
+  matches(url: string): boolean {
+    return DJINNI_JOB.test(url);
+  }
+
+  async fetchOne(url: string): Promise<Vacancy> {
+    const id = DJINNI_JOB.exec(url)?.[1];
+    if (!id) throw new Error(`not a Djinni job URL: ${url}`);
+    const vacancy = djinniPageToVacancy(await this.#http.getText(url), id);
+    if (!vacancy) throw new Error('could not read the vacancy from the page');
+    return vacancy;
+  }
+}
+
+const DJINNI_JOB = /djinni\.co\/jobs\/(\d+)/;
+
+/** Full vacancy from a job page alone (used when the user pastes a link that never came through RSS). */
+export function djinniPageToVacancy(html: string, id: string): Vacancy | undefined {
+  const posting = findJobPosting(html);
+  if (!posting?.title || !posting.description) return undefined;
+  const page = parseDjinniJobPage(html);
+  const description = htmlToText(posting.description);
+  const fromText = parseEnglishRequirement(description);
+  const publishedAt = new Date(posting.datePosted ?? Date.now());
+  return {
+    key: vacancyKey('djinni', id),
+    source: 'djinni',
+    externalId: id,
+    url: posting.url ?? `https://djinni.co/jobs/${id}/`,
+    title: decodeEntities(posting.title).trim(),
+    company: page.company,
+    description,
+    publishedAt: Number.isNaN(publishedAt.getTime()) ? new Date() : publishedAt,
+    meta: { ...(fromText ? { english: fromText } : {}), ...page.meta },
+  };
 }
 
 export function djinniItemToVacancy(item: RssItem): Vacancy | undefined {
@@ -61,6 +96,10 @@ export function djinniItemToVacancy(item: RssItem): Vacancy | undefined {
 }
 
 interface JobPosting {
+  title?: string;
+  description?: string;
+  datePosted?: string;
+  url?: string;
   hiringOrganization?: { name?: string };
   baseSalary?: { currency?: string; value?: { minValue?: number; maxValue?: number; value?: number; unitText?: string } };
   experienceRequirements?: { monthsOfExperience?: number };

@@ -3,14 +3,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { LlmUnavailableError } from '../../core/pipeline.ts';
-import type { AssessInput, LetterInput, Llm } from '../../core/ports.ts';
-import { AssessmentSchema, LetterSchema, type Assessment } from '../../schemas/assessment.ts';
+import type { AssessInput, ChatInput, ChatReply, LetterInput, Llm } from '../../core/ports.ts';
+import { AssessmentSchema, ChatReplySchema, LetterSchema, type Assessment } from '../../schemas/assessment.ts';
 import type { Vacancy } from '../../schemas/vacancy.ts';
 
 export interface ClaudeCliOptions {
   promptsDir: string;
   assessModel: string;
   letterModel: string;
+  /** Model for the per-vacancy conversation; defaults to letterModel. */
+  chatModel?: string;
   /** Binary name or path; resolved through PATH. */
   bin?: string;
   timeoutMs?: number;
@@ -38,14 +40,17 @@ export class ClaudeCli implements Llm {
   readonly #opts: Required<ClaudeCliOptions>;
   readonly #assessSystem: string;
   readonly #letterSystem: string;
+  readonly #chatSystem: string;
   // The CLI validates with a draft-07 validator and rejects the 2020-12 meta-schema URI.
   readonly #assessSchema = JSON.stringify(z.toJSONSchema(AssessmentSchema, { target: 'draft-7' }));
   readonly #letterSchema = JSON.stringify(z.toJSONSchema(LetterSchema, { target: 'draft-7' }));
+  readonly #chatSchema = JSON.stringify(z.toJSONSchema(ChatReplySchema, { target: 'draft-7' }));
 
   constructor(options: ClaudeCliOptions) {
-    this.#opts = { bin: 'claude', timeoutMs: 240_000, ...options };
+    this.#opts = { bin: 'claude', timeoutMs: 240_000, ...options, chatModel: options.chatModel ?? options.letterModel };
     this.#assessSystem = readFileSync(join(options.promptsDir, 'assess.md'), 'utf8');
     this.#letterSystem = readFileSync(join(options.promptsDir, 'letter.md'), 'utf8');
+    this.#chatSystem = readFileSync(join(options.promptsDir, 'chat.md'), 'utf8');
   }
 
   async assess(input: AssessInput): Promise<Assessment> {
@@ -72,21 +77,42 @@ export class ClaudeCli implements Llm {
     ];
     if (input.previousLetter) parts.push(section('Предыдущий вариант письма', input.previousLetter));
     if (input.feedback) parts.push(section('Что исправить (пожелание кандидата, приоритетно)', input.feedback));
-    if (input.forbiddenTerms?.length)
-      parts.push(
-        section(
-          'Заборонено згадувати',
-          `Ці слова (і будь-які їхні форми) не можна вживати в листі: ${input.forbiddenTerms.join(', ')}.\n` +
-            'Досвід, пов\u2019язаний з ними, описуй нейтрально, без назв компаній і без назви галузі ' +
-            '(наприклад: «високонавантажені платформи з платіжними інтеграціями», «маркетингові лендінги для великих брендів»).',
-        ),
-      );
+    if (input.forbiddenTerms?.length) parts.push(forbiddenSection(input.forbiddenTerms));
 
     const output = await this.#run(this.#opts.letterModel, this.#letterSystem, parts.join('\n\n'), this.#letterSchema);
     return LetterSchema.parse(output).letter.trim();
   }
 
+  async chat(input: ChatInput): Promise<ChatReply> {
+    const a = input.assessment;
+    const history = input.history.map((t) => `${t.role === 'user' ? 'Кандидат' : 'Асистент'}: ${t.text}`).join('\n\n');
+    const parts = [
+      section('Кандидат', input.candidateName),
+      section('Резюме', input.resume),
+      section('Вакансия', renderVacancy(input.vacancy)),
+      section('Оценка', [`Балл: ${a.score}`, a.summary, `Плюсы: ${a.pros.join('; ') || '—'}`, `Минусы: ${a.cons.join('; ') || '—'}`].join('\n')),
+      section('Текущий отклик', input.letter),
+    ];
+    if (history) parts.push(section('История разговора', history));
+    if (input.forbiddenTerms?.length) parts.push(forbiddenSection(input.forbiddenTerms));
+    parts.push(section('Новое сообщение кандидата', input.message));
+
+    const output = await this.#run(this.#opts.chatModel, this.#chatSystem, parts.join('\n\n'), this.#chatSchema);
+    const reply = ChatReplySchema.parse(output);
+    return { reply: reply.reply.trim(), letter: reply.letter.trim() };
+  }
+
+  /** One retry on transient CLI failures; "unavailable" (limit, auth) fails fast. */
   async #run(model: string, system: string, prompt: string, schema: string): Promise<unknown> {
+    try {
+      return await this.#runOnce(model, system, prompt, schema);
+    } catch (error) {
+      if (error instanceof LlmUnavailableError) throw error;
+      return this.#runOnce(model, system, prompt, schema);
+    }
+  }
+
+  async #runOnce(model: string, system: string, prompt: string, schema: string): Promise<unknown> {
     const args = [
       '-p',
       '--model', model,
@@ -111,7 +137,7 @@ export class ClaudeCli implements Llm {
     }
 
     if (envelope.is_error || code !== 0) {
-      const detail = envelope.result ?? `exit ${code}`;
+      const detail = envelope.result ?? `exit ${code}: ${(stderr.trim() || stdout.trim()).slice(-400)}`;
       const status = envelope.api_error_status ?? 0;
       if (status === 401 || status === 429 || status === 529 || UNAVAILABLE.test(detail)) throw new LlmUnavailableError(detail);
       throw new Error(`claude: ${detail}`);
@@ -120,6 +146,14 @@ export class ClaudeCli implements Llm {
     return envelope.structured_output;
   }
 }
+
+const forbiddenSection = (terms: string[]): string =>
+  section(
+    'Заборонено згадувати',
+    `Ці слова (і будь-які їхні форми) не можна вживати в листі: ${terms.join(', ')}.\n` +
+      'Досвід, пов\u2019язаний з ними, описуй нейтрально, без назв компаній і без назви галузі ' +
+      '(наприклад: «платформи з платіжними інтеграціями», «маркетингові лендінги для великих брендів»).',
+  );
 
 const section = (title: string, body: string): string => `<${tag(title)}>\n${body.trim()}\n</${tag(title)}>`;
 const tag = (title: string): string => title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '_');

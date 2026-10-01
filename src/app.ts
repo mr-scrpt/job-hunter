@@ -2,13 +2,14 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { Bot } from 'grammy';
 import { parse as parseYaml } from 'yaml';
 import { ClaudeCli } from './adapters/llm/claude-cli.ts';
 import { DjinniSource } from './adapters/sources/djinni.ts';
 import { DouSource } from './adapters/sources/dou.ts';
 import { HttpClient } from './adapters/sources/http.ts';
 import { SqliteStore } from './adapters/store/sqlite.ts';
-import { disabledNotifier, TelegramNotifier } from './adapters/telegram/bot.ts';
+import { DeckController, disabledNotifier, TelegramNotifier } from './adapters/telegram/deck-controller.ts';
 import type { PipelineDeps, ScanReport } from './core/pipeline.ts';
 import type { Notifier, Store, VacancySource } from './core/ports.ts';
 import { ProfileSchema, type Profile } from './schemas/profile.ts';
@@ -24,7 +25,8 @@ export interface App {
   sources: VacancySource[];
   llm: ClaudeCli;
   notifier: Notifier;
-  token: string | undefined;
+  /** Present when a bot token is configured. */
+  telegram: { bot: Bot; deck: DeckController } | undefined;
   pipeline: (overrides?: Partial<PipelineDeps>) => PipelineDeps;
 }
 
@@ -72,7 +74,10 @@ export function createApp(): App {
   });
 
   const token = loadToken();
-  const notifier = token ? new TelegramNotifier(token, store) : disabledNotifier;
+  const bot = token ? new Bot(token) : undefined;
+  const deck = bot ? new DeckController(bot.api, store) : undefined;
+  const telegram = bot && deck ? { bot, deck } : undefined;
+  const notifier = deck ? new TelegramNotifier(deck) : disabledNotifier;
 
   const pipeline = (overrides: Partial<PipelineDeps> = {}): PipelineDeps => ({
     store,
@@ -85,7 +90,7 @@ export function createApp(): App {
     ...overrides,
   });
 
-  return { profile, resume, store, sources, llm, notifier, token, pipeline };
+  return { profile, resume, store, sources, llm, notifier, telegram, pipeline };
 }
 
 export function formatReport(report: ScanReport | 'locked'): string {
@@ -109,7 +114,7 @@ const STATUS_LABEL: Record<string, string> = {
   duplicate: 'дубли',
   low: 'не подошли',
   ready: 'ждут отправки в чат',
-  notified: 'в чате, без решения',
+  notified: 'в очереди на разбор',
   applied: 'откликнулся',
   skipped: 'пропущено',
   error: 'ошибки',

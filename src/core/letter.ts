@@ -1,4 +1,4 @@
-import type { Llm, LetterInput } from './ports.ts';
+import type { ChatInput, ChatReply, Llm, LetterInput } from './ports.ts';
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -21,25 +21,42 @@ export class ForbiddenTermsError extends Error {
 
 const MAX_FIXES = 2;
 
-/**
- * Writes a letter and guarantees none of `forbiddenTerms` leaks into it: the model gets the list up front,
- * and any slip is sent back for a targeted fix. Throws rather than return a letter that still leaks.
- */
-export async function writeCheckedLetter(llm: Llm, input: LetterInput, forbiddenTerms: readonly string[]): Promise<string> {
-  const base: LetterInput = { ...input, forbiddenTerms: [...forbiddenTerms] };
-  let letter = await llm.writeLetter(base);
-
+/** Sends a leaking letter back for targeted fixes; throws rather than return one that still leaks. */
+async function cleanLetter(llm: Llm, base: LetterInput, letter: string, terms: readonly string[]): Promise<string> {
+  let current = letter;
   for (let fix = 0; fix < MAX_FIXES; fix++) {
-    const found = findForbiddenTerms(letter, forbiddenTerms);
-    if (found.length === 0) return letter;
-    letter = await llm.writeLetter({
+    const found = findForbiddenTerms(current, terms);
+    if (found.length === 0) return current;
+    current = await llm.writeLetter({
       ...base,
-      previousLetter: letter,
+      previousLetter: current,
       feedback: `Прибери з листа згадки: ${found.join(', ')}. Опиши цей досвід нейтрально, без назв компаній і без назви галузі. Решту листа залиш як є.`,
     });
   }
-
-  const found = findForbiddenTerms(letter, forbiddenTerms);
+  const found = findForbiddenTerms(current, terms);
   if (found.length) throw new ForbiddenTermsError(found);
-  return letter;
+  return current;
+}
+
+/**
+ * Writes a letter and guarantees none of `forbiddenTerms` leaks into it: the model gets the list up front,
+ * and any slip is sent back for a targeted fix.
+ */
+export async function writeCheckedLetter(llm: Llm, input: LetterInput, forbiddenTerms: readonly string[]): Promise<string> {
+  const base: LetterInput = { ...input, forbiddenTerms: [...forbiddenTerms] };
+  return cleanLetter(llm, base, await llm.writeLetter(base), forbiddenTerms);
+}
+
+/** One chat turn about a vacancy; a letter it produces goes through the same forbidden-terms guard. */
+export async function checkedChat(llm: Llm, input: ChatInput, forbiddenTerms: readonly string[]): Promise<ChatReply> {
+  const result = await llm.chat({ ...input, forbiddenTerms: [...forbiddenTerms] });
+  if (!result.letter) return result;
+  const base: LetterInput = {
+    vacancy: input.vacancy,
+    resume: input.resume,
+    candidateName: input.candidateName,
+    assessment: input.assessment,
+    forbiddenTerms: [...forbiddenTerms],
+  };
+  return { ...result, letter: await cleanLetter(llm, base, result.letter, forbiddenTerms) };
 }

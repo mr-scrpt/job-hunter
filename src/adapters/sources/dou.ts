@@ -33,6 +33,58 @@ export class DouSource implements VacancySource {
     }
     return [...byKey.values()];
   }
+
+  matches(url: string): boolean {
+    return DOU_JOB.test(url);
+  }
+
+  async fetchOne(url: string): Promise<Vacancy> {
+    const match = DOU_JOB.exec(url);
+    if (!match?.[2]) throw new Error(`not a DOU vacancy URL: ${url}`);
+    const clean = `https://jobs.dou.ua/companies/${match[1]}/vacancies/${match[2]}/`;
+    const vacancy = douPageToVacancy(await this.#http.getText(clean), match[2], clean);
+    if (!vacancy) throw new Error('could not read the vacancy from the page');
+    return vacancy;
+  }
+}
+
+const DOU_JOB = /jobs\.dou\.ua\/companies\/([^/]+)\/vacancies\/(\d+)/;
+
+const UA_MONTHS = ['січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+
+/** Full vacancy from a DOU job page (used when the user pastes a link). */
+export function douPageToVacancy(html: string, id: string, url: string): Vacancy | undefined {
+  const pick = (re: RegExp): string | undefined => re.exec(html)?.[1];
+  const title = pick(/<h1 class="g-h2">([\s\S]*?)<\/h1>/);
+  const body = pick(/<div class="b-typo vacancy-section">([\s\S]*?)<\/div>\s*<\/div>/) ?? pick(/<div class="b-typo vacancy-section">([\s\S]*)/);
+  if (!title || !body) return undefined;
+
+  const company = pick(/<div class="l-n">\s*<a[^>]*>([\s\S]*?)<\/a>/);
+  const place = htmlToText(pick(/<span class="place[^"]*">([\s\S]*?)<\/span>/) ?? '');
+  const salary = htmlToText(pick(/<span class="salary">([\s\S]*?)<\/span>/) ?? '');
+  const date = htmlToText(pick(/<div class="date">([\s\S]*?)(?:<a|<\/div>)/) ?? '');
+
+  // Reuse the RSS title parser: it already understands "salary, city, віддалено".
+  const { meta } = parseDouTitle(`x в y${salary ? `, ${salary}` : ''}${place ? `, ${place}` : ''}`);
+  const description = htmlToText(body);
+  const english = parseEnglishRequirement(description);
+  if (english) meta.english = english;
+
+  const [day, month, year] = date.split(' ');
+  const monthIndex = UA_MONTHS.indexOf(month ?? '');
+  const publishedAt = monthIndex >= 0 ? new Date(Number(year), monthIndex, Number(day), 12) : new Date();
+
+  return {
+    key: vacancyKey('dou', id),
+    source: 'dou',
+    externalId: id,
+    url,
+    title: decodeEntities(htmlToText(title)),
+    company: company ? decodeEntities(htmlToText(company)) : null,
+    description,
+    publishedAt,
+    meta,
+  };
 }
 
 const REMOTE = /віддалено|remote/i;

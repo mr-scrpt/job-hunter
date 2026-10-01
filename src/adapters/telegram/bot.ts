@@ -1,62 +1,15 @@
-import { Bot, GrammyError, type Context } from 'grammy';
-import type { InlineKeyboardButton } from 'grammy/types';
-import { decodeCallback, encodeCallback, renderCard, type Card, type CardAction } from '../../core/card.ts';
-import { writeCheckedLetter } from '../../core/letter.ts';
-import type { Llm, Notifier, Store, StoredVacancy } from '../../core/ports.ts';
+import { Bot } from 'grammy';
+import { decodeDeckCallback, type DeckAction } from '../../core/deck.ts';
+import { checkedChat, writeCheckedLetter } from '../../core/letter.ts';
+import type { Llm, Store, StoredVacancy } from '../../core/ports.ts';
+import { escapeHtml } from '../../core/text.ts';
+import { CHAT_KV, type DeckController } from './deck-controller.ts';
 
-export const CHAT_KV = 'tg_chat_id';
-const REWRITE_KV = 'tg_pending_rewrite';
-
-const toKeyboard = (card: Card, key: string): InlineKeyboardButton[][] =>
-  card.rows.map((row) =>
-    row.map((b): InlineKeyboardButton =>
-      b.kind === 'url' ? { text: b.label, url: b.url } : { text: b.label, callback_data: encodeCallback(b.action, key) },
-    ),
-  );
-
-const messageOptions = (card: Card, key: string) => ({
-  parse_mode: 'HTML' as const,
-  link_preview_options: { is_disabled: true },
-  reply_markup: { inline_keyboard: toKeyboard(card, key) },
-});
-
-/** Sends cards to the chat bound with /start. Used by the scan process (no polling). */
-export class TelegramNotifier implements Notifier {
-  readonly #bot: Bot;
-  readonly #store: Store;
-
-  constructor(token: string, store: Store) {
-    this.#bot = new Bot(token);
-    this.#store = store;
-  }
-
-  async sendCard(vacancy: StoredVacancy): Promise<number | undefined> {
-    const chatId = this.#store.getKv(CHAT_KV);
-    if (!chatId) return undefined;
-    const card = renderCard({ ...vacancy, status: 'notified' });
-    const message = await this.#bot.api.sendMessage(chatId, card.html, messageOptions(card, vacancy.key));
-    return message.message_id;
-  }
-
-  /** Re-renders an already delivered card in place (e.g. after its letter was regenerated). */
-  async editCard(vacancy: StoredVacancy): Promise<boolean> {
-    const chatId = this.#store.getKv(CHAT_KV);
-    if (!chatId || !vacancy.tgMessageId) return false;
-    const card = renderCard(vacancy);
-    try {
-      await this.#bot.api.editMessageText(chatId, vacancy.tgMessageId, card.html, messageOptions(card, vacancy.key));
-    } catch (error) {
-      if (!(error instanceof GrammyError && error.description.includes('message is not modified'))) throw error;
-    }
-    return true;
-  }
-}
-
-/** Notifier used when no token is configured: cards stay queued as `ready`. */
-export const disabledNotifier: Notifier = { sendCard: async () => undefined };
+export { CHAT_KV, DeckController, disabledNotifier, TelegramNotifier } from './deck-controller.ts';
 
 export interface BotDeps {
-  token: string;
+  bot: Bot;
+  deck: DeckController;
   store: Store;
   llm: Llm;
   candidateName: string;
@@ -65,40 +18,35 @@ export interface BotDeps {
   /** Triggers a scan in-process; returns a human summary. */
   scan: () => Promise<string>;
   stats: () => string;
-  /** Called once when the owner chat is bound via /start (e.g. to flush queued cards). */
+  /** Fetches, assesses and queues a vacancy from a pasted link. */
+  addFromUrl: (url: string) => Promise<StoredVacancy>;
+  /** Called once when the owner chat is bound via /start (e.g. to flush queued vacancies). */
   onBound?: () => Promise<unknown>;
   log?: (message: string) => void;
 }
 
-const STATUS_FOR: Record<Exclude<CardAction, 'rewrite'>, StoredVacancy['status']> = {
-  applied: 'applied',
-  skip: 'skipped',
-  undo: 'notified',
-};
-
-const EVENT_FOR: Record<Exclude<CardAction, 'rewrite'>, string> = {
-  applied: 'applied',
-  skip: 'skipped',
-  undo: 'reopened',
-};
+const HISTORY_TURNS = 10;
+const URL_RE = /https?:\/\/(?:www\.)?(?:djinni\.co\/jobs\/\d+|jobs\.dou\.ua\/companies\/[^\s/]+\/vacancies\/\d+)\S*/i;
 
 const HELP = [
-  'Я присылаю подходящие вакансии с Djinni и DOU вместе с готовым откликом.',
+  'Я подбираю вакансии с Djinni и DOU и готовлю отклики.',
   '',
-  'Кнопки на карточке:',
-  '✅ Отправил — отметить, что откликнулся',
-  '✏️ Переписать — напиши, что поменять в письме',
-  '⏭ Пропустить — убрать из списка',
+  'Все вакансии на разбор — в одном сообщении: ◀️ ▶️ листают, ✅ Отправил и ⏭ Пропустить убирают текущую из очереди.',
   '',
-  'Команды:',
+  'Пока открыта вакансия, просто пиши в чат:',
+  '• «короче», «добавь про NestJS», «убери абзац про безопасность» — перепишу отклик;',
+  '• «что за компания?», «стоит ли откликаться?» — отвечу по вакансии.',
+  '',
+  'Прислал ссылку на вакансию Djinni или DOU — разберу её и напишу отклик.',
+  '',
+  '/list — показать очередь внизу чата',
   '/scan — проверить вакансии сейчас',
   '/stats — статистика',
 ].join('\n');
 
 export function createBot(deps: BotDeps): Bot {
-  const { store, llm } = deps;
+  const { bot, deck, store, llm } = deps;
   const log = deps.log ?? (() => {});
-  const bot = new Bot(deps.token);
 
   // Owner guard: the first chat that sends /start owns the bot; everyone else is ignored.
   bot.use(async (ctx, next) => {
@@ -107,12 +55,11 @@ export function createBot(deps: BotDeps): Bot {
     if (chatId === undefined) return;
     let justBound = false;
     if (!owner) {
-      if (ctx.message?.text?.startsWith('/start')) {
-        store.setKv(CHAT_KV, String(chatId));
-        store.log('tg_bound', null, { chatId });
-        log(`bound to chat ${chatId}`);
-        justBound = true;
-      } else return;
+      if (!ctx.message?.text?.startsWith('/start')) return;
+      store.setKv(CHAT_KV, String(chatId));
+      store.log('tg_bound', null, { chatId });
+      log(`bound to chat ${chatId}`);
+      justBound = true;
     } else if (owner !== String(chatId)) {
       log(`ignored update from foreign chat ${chatId}`);
       return;
@@ -121,97 +68,168 @@ export function createBot(deps: BotDeps): Bot {
     if (justBound) await deps.onBound?.().catch((error: unknown) => log(`onBound failed: ${String(error)}`));
   });
 
-  bot.command(['start', 'help'], (ctx) => ctx.reply(HELP));
+  // Claude calls take 10-40 s; one at a time keeps the deck consistent and the subscription calm.
+  let busy = false;
+  const exclusive = async (label: string, work: () => Promise<void>): Promise<boolean> => {
+    if (busy) return false;
+    busy = true;
+    try {
+      await work();
+    } catch (error) {
+      log(`${label} failed — ${String(error)}`);
+      await deck.show({ note: `Не получилось: ${String(error).slice(0, 200)}` }).catch(() => {});
+    } finally {
+      busy = false;
+    }
+    return true;
+  };
+
+  bot.command(['start', 'help'], async (ctx) => {
+    await ctx.reply(HELP);
+    await deck.show({ repost: true });
+  });
+
+  bot.command('list', async () => {
+    await deck.show({ repost: true });
+  });
 
   let scanning = false;
   bot.command('scan', async (ctx) => {
     if (scanning) return void (await ctx.reply('Уже проверяю, подожди.'));
     scanning = true;
-    await ctx.reply('Проверяю вакансии… Это займёт пару минут.');
-    // Run detached so grammY keeps processing other updates (buttons) meanwhile.
+    const status = await ctx.reply('Проверяю вакансии… Это займёт пару минут.');
+    // Detached so buttons and chat keep working meanwhile; new vacancies re-post the deck themselves.
     void deps
       .scan()
-      .then((summary) => ctx.reply(summary))
+      .then((summary) => ctx.api.editMessageText(ctx.chat.id, status.message_id, summary))
       .catch((error: unknown) => ctx.reply(`Проверка упала: ${String(error)}`))
       .finally(() => (scanning = false));
   });
 
   bot.command('stats', (ctx) => ctx.reply(deps.stats()));
 
-  bot.command('cancel', async (ctx) => {
-    store.setKv(REWRITE_KV, '');
-    await ctx.reply('Ок, отменил.');
+  bot.on('callback_query:data', async (ctx) => {
+    const action = decodeDeckCallback(ctx.callbackQuery.data);
+    const messageId = ctx.callbackQuery.message?.message_id;
+
+    // Buttons on an old deck or on the old per-vacancy cards just bring the live deck down here.
+    if (!action || messageId !== deck.deckId) {
+      await ctx.answerCallbackQuery({ text: 'Открываю актуальный список' });
+      await ctx.deleteMessage().catch(() => {});
+      await deck.show({ repost: true });
+      return;
+    }
+    await handleAction(action, (text) => ctx.answerCallbackQuery(text ? { text } : undefined));
   });
 
-  bot.on('callback_query:data', async (ctx) => {
-    const parsed = decodeCallback(ctx.callbackQuery.data);
-    const vacancy = parsed && store.get(parsed.key);
-    if (!parsed || !vacancy) return void (await ctx.answerCallbackQuery({ text: 'Вакансия не найдена' }));
-
-    if (parsed.action === 'rewrite') {
-      store.setKv(REWRITE_KV, vacancy.key);
-      await ctx.answerCallbackQuery();
-      await ctx.reply(`Что поменять в отклике на «${vacancy.title}»? Напиши пожелание или «-», чтобы просто сгенерировать заново. /cancel — отмена.`, {
-        reply_markup: { force_reply: true, input_field_placeholder: 'Например: короче, сделай акцент на NestJS' },
-      });
+  async function handleAction(action: DeckAction, answer: (text?: string) => Promise<unknown>): Promise<void> {
+    if (action === 'prev' || action === 'next') {
+      deck.move(action === 'prev' ? -1 : 1);
+      await answer();
+      await deck.show();
+      return;
+    }
+    if (action === 'refresh') {
+      await answer();
+      await deck.show();
       return;
     }
 
-    const status = STATUS_FOR[parsed.action];
-    store.update(vacancy.key, { status });
-    store.log(EVENT_FOR[parsed.action], vacancy.key);
-    await refreshCard(ctx, { ...vacancy, status });
-    await ctx.answerCallbackQuery({ text: parsed.action === 'applied' ? 'Отмечено ✅' : parsed.action === 'skip' ? 'Пропущено' : 'Вернул' });
-  });
+    const vacancy = deck.focus();
+    if (!vacancy) return void (await answer('Очередь пуста'));
 
-  bot.on('message:text', async (ctx) => {
-    const key = store.getKv(REWRITE_KV);
-    const vacancy = key ? store.get(key) : undefined;
-    if (!vacancy?.assessment) return void (await ctx.reply('Не понял. /help — что я умею.'));
+    if (action === 'applied' || action === 'skip') {
+      const status = action === 'applied' ? 'applied' : 'skipped';
+      store.update(vacancy.key, { status });
+      store.log(status, vacancy.key);
+      await answer(action === 'applied' ? 'Отмечено ✅' : 'Пропущено');
+      await deck.show({ note: `${action === 'applied' ? '✅ Отправлено' : '⏭ Пропущено'}: ${vacancy.title}` });
+      return;
+    }
 
-    store.setKv(REWRITE_KV, '');
-    const feedback = ctx.message.text.trim();
-    await ctx.reply('Переписываю…');
-    try {
+    // regen: a different take on the letter under the same constraints.
+    const assessment = vacancy.assessment;
+    if (!assessment) return void (await answer('Нет оценки для этой вакансии'));
+    const started = await exclusive('regen', async () => {
+      await answer('Пишу другой вариант…');
+      await deck.show({ busy: 'Пишу другой вариант отклика…' });
       const letter = await writeCheckedLetter(
         llm,
         {
           vacancy,
           resume: deps.resume,
           candidateName: deps.candidateName,
-          assessment: vacancy.assessment,
+          assessment,
           previousLetter: vacancy.letter ?? undefined,
-          feedback: feedback === '-' ? undefined : feedback,
+          feedback: 'Напиши інший варіант: інша структура і формулювання, інші акценти з резюме. Обсяг і правила ті самі.',
         },
         deps.neverMention,
       );
       store.update(vacancy.key, { letter });
-      store.log('rewritten', vacancy.key, { feedback });
-      const updated = { ...vacancy, letter };
-      const card = renderCard(updated);
-      // A fresh card is easier to find than an edit far up in the chat; the old one is marked replaced.
-      const sent = await ctx.reply(card.html, messageOptions(card, vacancy.key));
-      if (vacancy.tgMessageId) {
-        await ctx.api
-          .editMessageText(ctx.chat.id, vacancy.tgMessageId, `⤵️ <s>${vacancy.title.replace(/[<&>]/g, '')}</s> — переписано ниже`, { parse_mode: 'HTML' })
-          .catch(() => {});
-      }
-      store.update(vacancy.key, { tgMessageId: sent.message_id });
-    } catch (error) {
-      log(`rewrite failed ${vacancy.key} — ${String(error)}`);
-      await ctx.reply(`Не получилось переписать: ${String(error).slice(0, 300)}`);
+      store.log('regenerated', vacancy.key);
+      deck.setFocus(vacancy.key);
+      await deck.show({ note: 'Новый вариант отклика готов.' });
+    });
+    if (!started) await answer('Подожди, ещё работаю над предыдущим запросом');
+  }
+
+  bot.on('message:text', async (ctx) => {
+    const text = ctx.message.text.trim();
+    if (text.startsWith('/')) return void (await ctx.reply('Не знаю такой команды. /help — что я умею.'));
+
+    const url = URL_RE.exec(text)?.[0];
+    if (url) {
+      const started = await exclusive('add-url', async () => {
+        await deck.show({ repost: true, busy: 'Читаю вакансию по ссылке, оцениваю и пишу отклик… (~1 мин)' });
+        const vacancy = await deps.addFromUrl(url);
+        deck.setFocus(vacancy.key);
+        await deck.show({ note: `Добавил: ${vacancy.title}` });
+      });
+      if (!started) await ctx.reply('Подожди, ещё работаю над предыдущим запросом.');
+      return;
     }
+
+    const vacancy = deck.focus();
+    const assessment = vacancy?.assessment;
+    const letter = vacancy?.letter;
+    if (!vacancy || !assessment || !letter) {
+      return void (await ctx.reply('Сейчас нет открытой вакансии. Пришли ссылку на вакансию Djinni/DOU или дождись новых.'));
+    }
+
+    const started = await exclusive('chat', async () => {
+      // The user's message stays above; the deck moves to the bottom with the result.
+      await deck.show({ repost: true, busy: 'Думаю…' });
+      const result = await checkedChat(
+        llm,
+        {
+          vacancy,
+          resume: deps.resume,
+          candidateName: deps.candidateName,
+          assessment,
+          letter,
+          history: store.recentChat(vacancy.key, HISTORY_TURNS),
+          message: text,
+        },
+        deps.neverMention,
+      );
+      store.addChatTurn(vacancy.key, { role: 'user', text });
+      store.addChatTurn(vacancy.key, { role: 'assistant', text: result.letter ? `${result.reply}\n[отклик обновлён]` : result.reply });
+      deck.setFocus(vacancy.key);
+
+      if (result.letter) {
+        store.update(vacancy.key, { letter: result.letter });
+        store.log('chat_edit', vacancy.key, { message: text });
+        await deck.show({ note: result.reply });
+      } else {
+        store.log('chat_answer', vacancy.key, { message: text });
+        // An answer stays in the history as its own message, with the deck re-posted under it.
+        await ctx.reply(`💬 <b>${escapeHtml(vacancy.title)}</b>\n\n${escapeHtml(result.reply)}`, { parse_mode: 'HTML' });
+        await deck.show({ repost: true });
+      }
+    });
+    if (!started) await ctx.reply('Подожди, ещё работаю над предыдущим запросом.');
   });
 
   bot.catch((err) => log(`bot error: ${err.message}`));
   return bot;
-}
-
-async function refreshCard(ctx: Context, vacancy: StoredVacancy): Promise<void> {
-  const card = renderCard(vacancy);
-  try {
-    await ctx.editMessageText(card.html, messageOptions(card, vacancy.key));
-  } catch (error) {
-    if (!(error instanceof GrammyError && error.description.includes('message is not modified'))) throw error;
-  }
 }

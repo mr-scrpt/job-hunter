@@ -213,23 +213,62 @@ async function writeLetterFor(vacancy: StoredVacancy, assessment: Assessment, de
   report.ready++;
 }
 
+/**
+ * Moves every `ready` vacancy into the review queue (`notified`) and tells the user once for the whole batch.
+ * If the notifier is not configured or fails, they go back to `ready` and are retried next run.
+ */
 export async function deliverReady(store: Store, notifier: Notifier, log: (m: string) => void = () => {}): Promise<number> {
-  const ready = store.listByStatus(['ready']).reverse(); // oldest first, so the newest card ends up at the bottom
-  let delivered = 0;
-  for (const vacancy of ready) {
-    try {
-      const messageId = await notifier.sendCard(vacancy);
-      if (messageId === undefined) break; // delivery not configured: keep them queued
-      store.update(vacancy.key, { status: 'notified', tgMessageId: messageId });
-      store.log('notified', vacancy.key, { messageId });
-      delivered++;
-    } catch (error) {
-      store.log('notify_error', vacancy.key, errorText(error));
-      log(`notify failed ${vacancy.key} — ${errorText(error)}`);
-      break; // Telegram down or misconfigured: retry the queue next run
-    }
+  const ready = store.listByStatus(['ready']);
+  if (ready.length === 0) return 0;
+  // Flip first: the notifier renders the queue, which must already contain the new ones.
+  for (const vacancy of ready) store.update(vacancy.key, { status: 'notified' });
+  let delivered = false;
+  try {
+    delivered = await notifier.announce(ready);
+  } catch (error) {
+    store.log('notify_error', null, errorText(error));
+    log(`notify failed — ${errorText(error)}`);
   }
-  return delivered;
+  if (!delivered) {
+    for (const vacancy of ready) store.update(vacancy.key, { status: 'ready' });
+    return 0;
+  }
+  for (const vacancy of ready) store.log('notified', vacancy.key);
+  return ready.length;
+}
+
+/**
+ * A vacancy the user pasted a link to: fetched from its page, assessed and given a letter regardless of
+ * filters and threshold (the user chose it), then put into the review queue.
+ */
+export async function addFromUrl(deps: PipelineDeps, url: string): Promise<StoredVacancy> {
+  const { store, sources, llm, profile, resume } = deps;
+  const source = sources.find((s) => s.matches(url));
+  if (!source) throw new Error('Понимаю только ссылки на вакансии Djinni и DOU.');
+
+  const fetched = await source.fetchOne(url);
+  store.insertIfAbsent(fetched);
+  const known = store.get(fetched.key);
+  if (!known) throw new Error(`vacancy ${fetched.key} vanished from the store`);
+  const vacancy: StoredVacancy = known.enriched ? known : { ...known, company: fetched.company ?? known.company, meta: { ...known.meta, ...fetched.meta } };
+  if (!known.enriched) store.update(vacancy.key, { enriched: true, company: vacancy.company, meta: vacancy.meta });
+
+  const assessment =
+    vacancy.assessment ??
+    (await llm.assess({
+      vacancy,
+      resume,
+      preferences: profile.candidate.preferences,
+      englishLevel: profile.candidate.englishLevel,
+      englishMax: profile.filters.englishMax,
+    }));
+  const letter =
+    vacancy.letter ??
+    (await writeCheckedLetter(llm, { vacancy, resume, candidateName: profile.candidate.name, assessment }, profile.candidate.neverMention));
+
+  store.update(vacancy.key, { status: 'notified', reason: 'manual', score: assessment.score, assessment, letter });
+  store.log('manual_add', vacancy.key, { url });
+  return store.get(vacancy.key) as StoredVacancy;
 }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, 500);

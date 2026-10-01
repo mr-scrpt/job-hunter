@@ -21,15 +21,15 @@ RSS (Djinni, DOU) ──► rules filter ──► page enrichment ──► rul
 - **State** lives in SQLite (`data/job-hunter.db`): every vacancy with its status and reason, plus an event log. Each vacancy is assessed once; runs are idempotent and guarded by a lock.
 - **Budget**: at most `scoring.maxAssessPerRun` assessments per run, newest first; the rest wait. If Claude hits the subscription limit the run stops and resumes next time.
 
-Statuses: `new → filtered | duplicate | low | ready → notified → applied | skipped` (`error` retries up to 3 times).
+Statuses: `new → filtered | duplicate | low | ready → notified (in the deck) → applied | skipped` (`error` retries up to 3 times).
 
 ## Layout
 
 ```
-src/core/          pure logic: pipeline, filters, card rendering, ports (interfaces)
+src/core/          pure logic: pipeline, filters, deck (queue/cursor/render), letter guard, ports
 src/schemas/       zod schemas: profile, vacancy, assessment, CEFR
 src/adapters/      sources (djinni, dou, rss, http), llm (claude-cli), store (sqlite), telegram
-prompts/           system prompts for assessment and letters — tune them freely
+prompts/           system prompts: assess, letter, chat — tune them freely
 config/            profile.example.yaml (tracked), profile.yaml (yours, gitignored)
 tests/             node:test, fixtures are trimmed real responses
 deploy/systemd/    user service
@@ -60,7 +60,17 @@ systemctl --user enable --now job-hunter
 journalctl --user -u job-hunter -f
 ```
 
-Bot commands: `/scan` (check now), `/stats`, `/help`. Card buttons: ✅ Отправил, ✏️ Переписать (send what to change, or `-` to just regenerate), ⏭ Пропустить, ↩️ Вернуть.
+### Using the bot
+
+All vacancies waiting for a decision live in **one message** (the deck): `Вакансия 2 из 5`, best match first.
+
+- ◀️ ▶️ — browse; ✅ Отправил / ⏭ Пропустить — take the current one off the queue (the next one shows up);
+- 🎲 Другой вариант — a fresh take on the letter; 🔗 Открыть — the vacancy page;
+- **any text** in the chat goes to Claude about the vacancy on screen: "короче", "добавь про NestJS" rewrites the letter (the deck updates in place); "что за компания?" gets an answer as a separate message. The last 10 turns per vacancy are remembered;
+- **a Djinni/DOU link** — fetched, assessed and given a letter regardless of filters, then opened in the deck;
+- new vacancies from scans arrive as one batch: the deck is re-posted at the bottom with "🔔 3 новые вакансии".
+
+Commands: `/list` (re-post the deck at the bottom), `/scan`, `/stats`, `/help`.
 
 ## CLI
 
@@ -71,7 +81,7 @@ Bot commands: `/scan` (check now), `/stats`, `/help`. Card buttons: ✅ Отпр
 | `npm run stats` | counters |
 | `npm run show [-- 10 low]` | top cards by score, any status list (`ready,notified`, `low`, …) |
 | `npm run why -- djinni:850653` | everything stored about one vacancy |
-| `node src/cli.ts relint` | regenerate open letters that mention `candidate.neverMention` terms, edit the cards in Telegram |
+| `node src/cli.ts relint` | regenerate open letters that mention `candidate.neverMention` terms, refresh the deck |
 
 ## Tuning
 

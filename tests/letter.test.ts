@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { findForbiddenTerms, ForbiddenTermsError, writeCheckedLetter } from '../src/core/letter.ts';
-import type { LetterInput, Llm } from '../src/core/ports.ts';
+import { checkedChat, findForbiddenTerms, ForbiddenTermsError, writeCheckedLetter } from '../src/core/letter.ts';
+import type { ChatInput, ChatReply, LetterInput, Llm } from '../src/core/ports.ts';
 
 const TERMS = ['Initech', 'Umbrella', 'GLOBEX', 'proptech', 'ломбард', 'факторинг', 'ACME CORP'];
 
@@ -19,9 +19,14 @@ describe('findForbiddenTerms', () => {
   });
 });
 
-function fakeLlm(outputs: string[]) {
+function fakeLlm(outputs: string[], chatReply?: ChatReply) {
   const calls: LetterInput[] = [];
+  const chats: ChatInput[] = [];
   const llm: Llm = {
+    chat: async (input) => {
+      chats.push(input);
+      return chatReply ?? { reply: 'ok', letter: '' };
+    },
     assess: async () => {
       throw new Error('not used');
     },
@@ -30,7 +35,7 @@ function fakeLlm(outputs: string[]) {
       return outputs[calls.length - 1] ?? outputs.at(-1)!;
     },
   };
-  return { llm, calls };
+  return { llm, calls, chats };
 }
 
 const input = { candidateName: 'Іван', resume: 'cv' } as unknown as LetterInput;
@@ -55,5 +60,22 @@ describe('writeCheckedLetter', () => {
     const { llm, calls } = fakeLlm(['GLOBEX']);
     await assert.rejects(writeCheckedLetter(llm, input, TERMS), ForbiddenTermsError);
     assert.equal(calls.length, 3);
+  });
+});
+
+describe('checkedChat', () => {
+  it('passes answers through untouched and gives the model the forbidden list', async () => {
+    const { llm, calls, chats } = fakeLlm([], { reply: 'Компания продуктовая.', letter: '' });
+    const result = await checkedChat(llm, { ...input, message: 'что за компания?' } as ChatInput, TERMS);
+    assert.deepEqual(result, { reply: 'Компания продуктовая.', letter: '' });
+    assert.deepEqual(chats[0]?.forbiddenTerms, TERMS);
+    assert.equal(calls.length, 0);
+  });
+
+  it('cleans a letter produced in chat', async () => {
+    const { llm, calls } = fakeLlm(['Чистий лист'], { reply: 'Сократил.', letter: 'Досвід у GLOBEX' });
+    const result = await checkedChat(llm, { ...input, message: 'короче' } as ChatInput, TERMS);
+    assert.deepEqual(result, { reply: 'Сократил.', letter: 'Чистий лист' });
+    assert.equal(calls[0]?.previousLetter, 'Досвід у GLOBEX');
   });
 });

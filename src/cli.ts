@@ -1,8 +1,8 @@
 import { createApp, formatReport, formatStats } from './app.ts';
-import { createBot, TelegramNotifier } from './adapters/telegram/bot.ts';
-import { renderCard } from './core/card.ts';
+import { createBot } from './adapters/telegram/bot.ts';
+import { orderQueue, renderDeck } from './core/deck.ts';
 import { findForbiddenTerms, writeCheckedLetter } from './core/letter.ts';
-import { deliverReady, runScan } from './core/pipeline.ts';
+import { addFromUrl, deliverReady, runScan } from './core/pipeline.ts';
 import { decodeEntities } from './core/text.ts';
 import type { Status } from './core/ports.ts';
 
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
       const scoped = limit ? { ...profile, scoring: { ...profile.scoring, maxAssessPerRun: limit } } : profile;
       const report = await runScan(app.pipeline({ profile: scoped }));
       console.log(formatReport(report));
-      if (!app.token) console.log('\nTelegram не настроен — карточки лежат в базе, смотри `npm run show`.');
+      if (!app.telegram) console.log('\nTelegram не настроен — вакансии лежат в базе, смотри `npm run show`.');
       break;
     }
 
@@ -51,11 +51,10 @@ async function main(): Promise<void> {
     case 'show': {
       const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 5);
       const statuses = (args.find((a) => !/^\d+$/.test(a))?.split(',') ?? ['ready', 'notified']) as Status[];
-      const items = store
-        .listByStatus(statuses)
-        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-        .slice(0, count);
-      for (const v of items) console.log(`${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderCard(v).html)}\n`);
+      const items = orderQueue(store.listByStatus(statuses)).slice(0, count);
+      items.forEach((v, index) =>
+        console.log(`${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderDeck({ queue: items, index }).html)}\n`),
+      );
       if (!items.length) console.log('Пусто.');
       break;
     }
@@ -82,19 +81,20 @@ async function main(): Promise<void> {
         );
         store.update(v.key, { letter });
         store.log('relinted', v.key);
-        const edited = app.notifier instanceof TelegramNotifier && (await app.notifier.editCard({ ...v, letter }));
-        console.log(`${'─'.repeat(70)}\n${v.key}${edited ? ' (обновлено в Telegram)' : ''}\n${letter}\n`);
+        console.log(`${'─'.repeat(70)}\n${v.key}\n${letter}\n`);
       }
+      if (dirty.length && app.telegram) await app.telegram.deck.show();
       break;
     }
 
     case 'bot': {
-      if (!app.token) throw new Error('No bot token: put it into ~/.local/share/secrets/job-hunter.token (or JOB_HUNTER_TG_TOKEN).');
+      if (!app.telegram) throw new Error('No bot token: put it into ~/.local/share/secrets/job-hunter.token (or JOB_HUNTER_TG_TOKEN).');
       const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
       const scan = async (): Promise<string> => formatReport(await runScan(app.pipeline({ log })));
 
       const bot = createBot({
-        token: app.token,
+        bot: app.telegram.bot,
+        deck: app.telegram.deck,
         store,
         llm: app.llm,
         candidateName: profile.candidate.name,
@@ -102,10 +102,12 @@ async function main(): Promise<void> {
         resume: app.resume,
         scan,
         stats: () => formatStats(store),
+        addFromUrl: (url) => addFromUrl(app.pipeline({ log }), url),
         onBound: () => deliverReady(store, app.notifier, log),
         log,
       });
       await bot.api.setMyCommands([
+        { command: 'list', description: 'Вакансии на разбор' },
         { command: 'scan', description: 'Проверить вакансии сейчас' },
         { command: 'stats', description: 'Статистика' },
         { command: 'help', description: 'Что я умею' },

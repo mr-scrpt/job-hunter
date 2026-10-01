@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import type { Status, Store, StoredVacancy, VacancyPatch } from '../../core/ports.ts';
+import type { ChatTurn, Status, Store, StoredVacancy, VacancyPatch } from '../../core/ports.ts';
 import { AssessmentSchema } from '../../schemas/assessment.ts';
 import type { SourceId, Vacancy } from '../../schemas/vacancy.ts';
 
@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_type_at ON events(type, at);
 
+CREATE TABLE IF NOT EXISTS chat (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  at           INTEGER NOT NULL,
+  vacancy_key  TEXT NOT NULL,
+  role         TEXT NOT NULL,
+  text         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_vacancy ON chat(vacancy_key, id);
+
 CREATE TABLE IF NOT EXISTS kv (
   name   TEXT PRIMARY KEY,
   value  TEXT NOT NULL
@@ -60,7 +69,6 @@ const COLUMN: Record<keyof VacancyPatch, string> = {
   score: 'score',
   assessment: 'assessment',
   letter: 'letter',
-  tgMessageId: 'tg_message_id',
 };
 
 type Row = Record<string, SQLInputValue>;
@@ -161,6 +169,17 @@ export class SqliteStore implements Store {
     return Object.fromEntries(rows.map((r) => [r.status, r.n]));
   }
 
+  addChatTurn(vacancyKey: string, turn: ChatTurn): void {
+    this.#db.prepare('INSERT INTO chat (at, vacancy_key, role, text) VALUES (?, ?, ?, ?)').run(Date.now(), vacancyKey, turn.role, turn.text);
+  }
+
+  recentChat(vacancyKey: string, limit: number): ChatTurn[] {
+    const rows = this.#db
+      .prepare('SELECT role, text FROM chat WHERE vacancy_key = ? ORDER BY id DESC LIMIT ?')
+      .all(vacancyKey, limit) as { role: ChatTurn['role']; text: string }[];
+    return rows.reverse();
+  }
+
   countEventsSince(type: string, since: Date): number {
     const row = this.#db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ? AND at >= ?').get(type, since.getTime()) as { n: number };
     return row.n;
@@ -199,6 +218,5 @@ function toStored(row: Row): StoredVacancy {
     score: row.score === null ? null : Number(row.score),
     assessment: assessment?.success ? assessment.data : null,
     letter: row.letter === null ? null : String(row.letter),
-    tgMessageId: row.tg_message_id === null ? null : Number(row.tg_message_id),
   };
 }

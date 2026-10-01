@@ -19,3 +19,8 @@ export const LetterSchema = z.object({
   letter: z.string().min(1).describe('Текст відгуку українською, без підпису-шаблону в квадратних дужках'),
 });
 export type Letter = z.infer<typeof LetterSchema>;
+
+export const ChatReplySchema = z.object({
+  reply: z.string().min(1).describe('Коротка відповідь кандидату російською: що змінено в листі або відповідь на питання'),
+  letter: z.string().describe('Повний новий текст листа українською, або порожній рядок, якщо лист не змінюється'),
+});

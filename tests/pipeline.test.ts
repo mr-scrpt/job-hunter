@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { SqliteStore } from '../src/adapters/store/sqlite.ts';
-import { LlmUnavailableError, runScan, type PipelineDeps } from '../src/core/pipeline.ts';
+import { addFromUrl, LlmUnavailableError, runScan, type PipelineDeps } from '../src/core/pipeline.ts';
 import type { AssessInput, Llm, Notifier, StoredVacancy, VacancySource } from '../src/core/ports.ts';
 import type { Assessment } from '../src/schemas/assessment.ts';
 import { ProfileSchema } from '../src/schemas/profile.ts';
@@ -51,6 +51,8 @@ function setup(opts: {
   const source: VacancySource = {
     id: 'djinni',
     fetchLatest: async () => opts.items,
+    matches: (url) => url.includes('djinni.co'),
+    fetchOne: async (url) => vacancy(/jobs\/(\d+)/.exec(url)![1]!, { company: 'Linked Co' }),
     ...(opts.enrich ? { enrich: async (v: Vacancy) => opts.enrich!(v) } : {}),
   };
   const assessed: string[] = [];
@@ -62,9 +64,10 @@ function setup(opts: {
       return result;
     },
     writeLetter: async ({ vacancy: v }) => `letter for ${v.key}`,
+    chat: async () => ({ reply: '', letter: '' }),
   };
   const sent: StoredVacancy[] = [];
-  const notifier: Notifier = opts.notifier ?? { sendCard: async (v) => (sent.push(v), sent.length) };
+  const notifier: Notifier = opts.notifier ?? { announce: async (fresh) => (sent.push(...fresh), true) };
   const deps: PipelineDeps = { store, sources: [source], llm, notifier, profile, resume: 'cv', now: () => NOW };
   return { store, deps, assessed, sent };
 }
@@ -128,9 +131,41 @@ describe('pipeline', () => {
   });
 
   it('keeps cards queued when delivery is not configured', async () => {
-    const { store, deps } = setup({ items: [vacancy('1')], notifier: { sendCard: async () => undefined } });
+    const { store, deps } = setup({ items: [vacancy('1')], notifier: { announce: async () => false } });
     await runScan(deps);
     assert.equal(store.get('djinni:1')?.status, 'ready');
+  });
+
+  it('announces a batch once, with the vacancies already in the queue, and rolls back on failure', async () => {
+    const seen: string[][] = [];
+    const { store, deps } = setup({
+      items: [vacancy('1'), vacancy('2')],
+      notifier: {
+        announce: async (fresh) => {
+          seen.push(store.listByStatus(['notified']).map((v) => v.key).sort());
+          return fresh.length > 0;
+        },
+      },
+    });
+    await runScan(deps);
+    assert.deepEqual(seen, [['djinni:1', 'djinni:2']]);
+
+    const failing = setup({ items: [vacancy('3')], notifier: { announce: async () => Promise.reject(new Error('tg down')) } });
+    await runScan(failing.deps);
+    assert.equal(failing.store.get('djinni:3')?.status, 'ready');
+  });
+
+  it('adds a vacancy from a link regardless of filters, and reuses an existing assessment', async () => {
+    const { store, deps, assessed } = setup({ items: [], scores: { 'djinni:77': assessment(30) } });
+    const added = await addFromUrl(deps, 'https://djinni.co/jobs/77-x/');
+    assert.equal(added.status, 'notified');
+    assert.equal(added.reason, 'manual');
+    assert.equal(added.company, 'Linked Co');
+    assert.equal(added.letter, 'letter for djinni:77');
+    await addFromUrl(deps, 'https://djinni.co/jobs/77-x/');
+    assert.deepEqual(assessed, ['djinni:77']);
+    await assert.rejects(addFromUrl(deps, 'https://example.com/job/1'), /Djinni и DOU/);
+    assert.equal(store.get('djinni:77')?.score, 30);
   });
 
   it('marks cross-board duplicates of surfaced vacancies', async () => {

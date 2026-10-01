@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { decodeCallback, encodeCallback, renderCard } from '../src/core/card.ts';
 import { parseEnglishRequirement } from '../src/core/english.ts';
 import { containsWord, matchKey, rejectReason } from '../src/core/filter.ts';
-import type { StoredVacancy } from '../src/core/ports.ts';
 import { decodeEntities, htmlToText } from '../src/core/text.ts';
 import { parseCefr } from '../src/schemas/cefr.ts';
 import { ProfileSchema } from '../src/schemas/profile.ts';
@@ -84,52 +82,4 @@ describe('text', () => {
   it('decodes double-escaped entities', () => assert.equal(decodeEntities('Webflow &amp;amp; React &#8212; ok'), 'Webflow & React — ok'));
   it('turns HTML into readable text', () =>
     assert.equal(htmlToText('<p>Вимоги:</p><ul><li>React</li><li>Node&nbsp;20</li></ul><p>&nbsp;</p><p>Ok</p>'), 'Вимоги:\n\n• React\n• Node 20\n\nOk'));
-});
-
-describe('card', () => {
-  const stored: StoredVacancy = {
-    ...vacancy({ title: 'Senior <AI> Engineer', meta: { salaryMinUsd: 3000, salaryMaxUsd: 4500, remote: true, english: 'B1' } }),
-    status: 'notified',
-    reason: null,
-    attempts: 0,
-    enriched: true,
-    score: 82,
-    assessment: {
-      score: 82,
-      verdict: 'apply',
-      role: 'fullstack',
-      aiFocus: 'core',
-      englishRequired: 'B1',
-      pros: ['NestJS', 'LLM-агенты'],
-      cons: ['Нужен Python для прототипов'],
-      summary: 'Продуктовая AI-команда на TS.',
-    },
-    letter: 'Добрий день! <тест> & ще',
-    tgMessageId: null,
-  };
-
-  it('escapes HTML and shows the letter while open', () => {
-    const { html, rows } = renderCard(stored);
-    assert.match(html, /Senior &lt;AI&gt; Engineer/);
-    assert.match(html, /\$3000–4500/);
-    assert.match(html, /<pre>Добрий день! &lt;тест&gt; &amp; ще<\/pre>/);
-    assert.deepEqual(
-      rows.flat().map((b) => (b.kind === 'action' ? b.action : 'url')),
-      ['url', 'applied', 'rewrite', 'skip'],
-    );
-  });
-
-  it('collapses after a decision', () => {
-    const { html, rows } = renderCard({ ...stored, status: 'applied' });
-    assert.match(html, /Отклик отправлен/);
-    assert.doesNotMatch(html, /<pre>/);
-    assert.deepEqual(rows.flat().map((b) => (b.kind === 'action' ? b.action : 'url')), ['url', 'undo']);
-  });
-
-  it('round-trips callback data within 64 bytes', () => {
-    const data = encodeCallback('rewrite', 'djinni:850653');
-    assert.ok(Buffer.byteLength(data) <= 64);
-    assert.deepEqual(decodeCallback(data), { action: 'rewrite', key: 'djinni:850653' });
-    assert.equal(decodeCallback('zz|x'), undefined);
-  });
 });

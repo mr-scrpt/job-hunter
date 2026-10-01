@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { djinniItemToVacancy, parseDjinniJobPage } from '../src/adapters/sources/djinni.ts';
-import { douItemToVacancy, parseDouTitle } from '../src/adapters/sources/dou.ts';
+import { douItemToVacancy, douPageToVacancy, parseDouTitle } from '../src/adapters/sources/dou.ts';
 import { buildUrl } from '../src/adapters/sources/http.ts';
 import { parseRss } from '../src/adapters/sources/rss.ts';
 
@@ -68,6 +68,24 @@ describe('dou', () => {
     assert.equal(nda.key, 'dou:368144');
     assert.equal(nda.url, 'https://jobs.dou.ua/companies/nda-recruitment/vacancies/368144/');
     assert.equal(nda.meta.salaryMaxUsd, 5000);
+  });
+});
+
+describe('vacancy pages (pasted links)', () => {
+  it('reads a DOU vacancy page', () => {
+    const url = 'https://jobs.dou.ua/companies/omd-systems/vacancies/351808/';
+    const v = douPageToVacancy(fixture('dou-job.html'), '351808', url);
+    assert.ok(v);
+    assert.equal(v.key, 'dou:351808');
+    assert.equal(v.title, 'Senior Full-stack JS Developer (Electron/React.js/Node.js)');
+    assert.equal(v.company, 'OM Defence Systems');
+    assert.equal(v.meta.remote, true);
+    assert.equal(v.publishedAt.getMonth(), 8); // вересня
+    assert.ok(v.description.length > 500);
+  });
+
+  it('returns undefined for a page without a vacancy', () => {
+    assert.equal(douPageToVacancy('<html></html>', '1', 'https://jobs.dou.ua/companies/x/vacancies/1/'), undefined);
   });
 });
 
