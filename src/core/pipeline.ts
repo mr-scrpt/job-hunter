@@ -39,6 +39,8 @@ export interface ScanReport {
   deferred: number;
   /** Queued vacancies dropped because they no longer pass the (changed) filters. */
   unqueued: number;
+  /** Why Claude was unavailable, when it was. */
+  llmError?: string;
   sourceErrors: string[];
   llmUnavailable: boolean;
 }
@@ -159,6 +161,7 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
       if (error instanceof LlmUnavailableError) {
         llmDown = true;
         report.llmUnavailable = true;
+        report.llmError = error.message;
         store.log('llm_unavailable', vacancy.key, error.message);
         log(`LLM unavailable, stopping this run — ${error.message}`);
         return;
@@ -170,11 +173,42 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
     }
   });
 
+  await alertIfLlmDown(deps, report, now(), log);
+
   // 4. Deliver everything that is ready (including leftovers from earlier runs).
   report.notified = await deliverReady(store, deps.notifier, log);
 
   store.setKv('last_scan', JSON.stringify({ at: now().toISOString(), ...report }));
   return report;
+}
+
+const LLM_ALERT_KV = 'llm_alert_at';
+const LLM_ALERT_EVERY_MS = 6 * 3_600_000;
+
+/**
+ * Claude down (expired login, usage cap) is invisible from the chat otherwise: say so in the deck,
+ * at most every 6 hours, and reset once Claude answers again.
+ */
+async function alertIfLlmDown(deps: PipelineDeps, report: ScanReport, now: Date, log: (m: string) => void): Promise<void> {
+  const { store, notifier } = deps;
+  if (!report.llmUnavailable) {
+    if (report.assessed > 0 || report.ready > 0) store.setKv(LLM_ALERT_KV, '');
+    return;
+  }
+  const last = Number(store.getKv(LLM_ALERT_KV) || 0);
+  if (now.getTime() - last < LLM_ALERT_EVERY_MS || !notifier.refresh) return;
+  try {
+    await notifier.refresh(
+      truncate(
+        `⚠️ Claude недоступен, новые вакансии ждут оценки. Причина: ${report.llmError ?? 'неизвестно'}. ` +
+          'Если это вход — на сервере: ssh station → claude → /login.',
+        400,
+      ),
+    );
+    store.setKv(LLM_ALERT_KV, String(now.getTime()));
+  } catch (error) {
+    log(`llm alert failed — ${errorText(error)}`);
+  }
 }
 
 async function recheckQueue(deps: PipelineDeps, now: Date, log: (m: string) => void): Promise<number> {

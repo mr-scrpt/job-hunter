@@ -26,8 +26,9 @@ const ResultEnvelope = z.object({
   structured_output: z.unknown().optional(),
 });
 
-// Text fragments meaning "retrying now is pointless" (usage cap, logged out).
-const UNAVAILABLE = /usage limit|rate limit|limit reached|log ?in|login|authenticat|credit balance|overloaded/i;
+// Text fragments meaning "retrying now is pointless" (usage cap, logged out, stuck OAuth refresh).
+// These stop the run without burning per-vacancy attempts; the next run retries.
+const UNAVAILABLE = /usage limit|rate limit|limit reached|log ?in|login|sign in|authenticat|oauth|credit balance|overloaded/i;
 
 // Hard cap per vacancy description so one huge posting cannot blow the context/budget.
 const DESCRIPTION_MAX = 12_000;

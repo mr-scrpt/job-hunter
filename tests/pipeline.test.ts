@@ -219,6 +219,23 @@ describe('pipeline', () => {
     assert.equal(store.get('djinni:1')?.status, 'notified');
   });
 
+  it('alerts once when Claude is down and re-arms after it recovers', async () => {
+    const notes: string[] = [];
+    const notifier: Notifier = { announce: async () => true, refresh: async (note) => void notes.push(note) };
+    const down = new LlmUnavailableError('OAuth session expired');
+    const { store, deps } = setup({ items: [vacancy('1')], scores: { 'djinni:1': down }, notifier });
+    await runScan(deps);
+    await runScan(deps);
+    assert.equal(notes.length, 1);
+    assert.match(notes[0]!, /Claude недоступен.*OAuth session expired/);
+    assert.equal(store.get('djinni:1')?.attempts, 0); // nothing burned
+
+    const recovered = setup({ items: [vacancy('2')], notifier });
+    recovered.store.setKv('llm_alert_at', String(Date.now()));
+    await runScan(recovered.deps);
+    assert.equal(recovered.store.getKv('llm_alert_at'), '');
+  });
+
   it('refuses to run concurrently', async () => {
     const { store, deps } = setup({ items: [] });
     assert.equal(store.acquireLock('scan', 60_000), true);

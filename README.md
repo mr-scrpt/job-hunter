@@ -77,7 +77,7 @@ Commands: `/list` (re-post the deck at the bottom), `/scan`, `/stats`, `/help`.
 Production runs on the Proxmox VM `claude-station` (ssh alias `station`, user `arch`), so scans continue while the workstation is off.
 
 - First time: copy the personal files that are not in git — `config/profile.yaml`, the CV (path from the profile), `~/.local/share/secrets/job-hunter.token` — and enable lingering (`loginctl enable-linger`) so the user service runs without a login.
-- Claude on a headless box: run `claude setup-token` once (1-year token) and store it as `CLAUDE_CODE_OAUTH_TOKEN=...` in `~/.local/share/secrets/claude-oauth.env` (mode 600); the unit loads it.
+- Claude on the box: an interactive `claude` → `/login` is enough while the box keeps running (the CLI refreshes its own token). If it stays idle long enough for the refresh token to lapse, scans stop and the deck shows "⚠️ Claude недоступен" (every 6 h) — log in again. More robust alternative: `claude setup-token` (1-year token) stored as `CLAUDE_CODE_OAUTH_TOKEN=...` in `~/.local/share/secrets/claude-oauth.env` (mode 600); the unit loads it.
 - Updates: commit, then `deploy/deploy.sh` (pushes HEAD to the `station` remote, `npm ci`, tests, restarts the unit).
 - Only one bot may poll Telegram per token: stop the service on the workstation before starting it elsewhere.
 
