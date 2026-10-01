@@ -2,7 +2,7 @@
 
 Personal job-search assistant for the Ukrainian IT market.
 
-Every 30 minutes it reads the Djinni and DOU vacancy feeds, drops what clearly doesn't fit, asks Claude to rate the rest against the CV, writes a tailored cover letter (in Ukrainian) for the good ones and queues them in a single Telegram message you browse with ◀️ ▶️. You read the vacancy, tweak the letter by just writing in the chat, copy it, apply on the site and press "✅ Отправил".
+Every 10 minutes (configurable, quiet at night) it reads the Djinni and DOU vacancy feeds, drops what clearly doesn't fit, asks Claude to rate the rest against the CV, writes a tailored cover letter (in Ukrainian) for the good ones and queues them in a single Telegram message you browse with ◀️ ▶️. You read the vacancy, tweak the letter by just writing in the chat, copy it, apply on the site and press "✅ Отправил".
 
 Applying itself stays manual on purpose: DOU forbids automated applications, and a human glance per vacancy keeps the quality up.
 

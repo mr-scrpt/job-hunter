@@ -56,5 +56,5 @@ sources:
       - { category: AI/ML, search: Node.js }
 
 bot:
-  scanIntervalMinutes: 30
+  scanIntervalMinutes: 10
   quietHours: "23-8"      # Kyiv time; no automatic scans at night

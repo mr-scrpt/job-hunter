@@ -34,11 +34,13 @@ export class DeckController {
   readonly #api: Api;
   readonly #store: Store;
   readonly #contact: Contact | undefined;
+  readonly #scanIntervalMinutes: number | undefined;
 
-  constructor(api: Api, store: Store, contact?: Contact) {
+  constructor(api: Api, store: Store, opts: { contact?: Contact; scanIntervalMinutes?: number } = {}) {
     this.#api = api;
     this.#store = store;
-    this.#contact = contact;
+    this.#contact = opts.contact;
+    this.#scanIntervalMinutes = opts.scanIntervalMinutes;
   }
 
   get chatId(): string | undefined {
@@ -81,7 +83,7 @@ export class DeckController {
     if (!chatId) return false;
 
     const state = this.state();
-    const view = renderDeck(state, { ...opts, contact: this.#contact });
+    const view = renderDeck(state, { ...opts, contact: this.#contact, scanIntervalMinutes: this.#scanIntervalMinutes });
     this.#save(view.focusKey, state.index);
     const markup = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: keyboard(view) } };
 

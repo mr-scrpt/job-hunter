@@ -63,7 +63,7 @@ export const ProfileSchema = z.object({
   bot: z
     .object({
       /** How often the bot process runs a scan on its own. 0 = only on /scan. */
-      scanIntervalMinutes: z.number().nonnegative().default(30),
+      scanIntervalMinutes: z.number().nonnegative().default(10),
       /** No automatic scans in this local-time window, e.g. "23-8". Empty = always. */
       quietHours: z
         .string()
@@ -71,7 +71,7 @@ export const ProfileSchema = z.object({
         .or(z.literal(''))
         .default('23-8'),
     })
-    .default({ scanIntervalMinutes: 30, quietHours: '23-8' }),
+    .default({ scanIntervalMinutes: 10, quietHours: '23-8' }),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;

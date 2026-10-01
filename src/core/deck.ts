@@ -97,12 +97,18 @@ const navRow = (index: number, total: number): DeckButton[] => {
   return row;
 };
 
-export function renderDeck(state: DeckState, opts: { note?: string; busy?: string; contact?: Contact } = {}): DeckView {
+export function renderDeck(
+  state: DeckState,
+  opts: { note?: string; busy?: string; contact?: Contact; scanIntervalMinutes?: number } = {},
+): DeckView {
   const { queue, index } = state;
   const refresh: DeckButton = { kind: 'action', label: '🔄 Обновить', action: 'refresh' };
 
   if (queue.length === 0) {
-    const lines = ['✅ <b>Все вакансии разобраны.</b>', '', 'Новые проверяю каждые 30 минут. /scan — проверить сейчас.'];
+    const every = opts.scanIntervalMinutes
+      ? `Новые проверяю каждые ${opts.scanIntervalMinutes} ${plural(opts.scanIntervalMinutes, ['минуту', 'минуты', 'минут'])}. `
+      : '';
+    const lines = ['✅ <b>Все вакансии разобраны.</b>', '', `${every}/scan — проверить сейчас.`];
     if (opts.note) lines.unshift(escapeHtml(opts.note), '');
     return { html: lines.join('\n'), rows: [[refresh]], focusKey: null };
   }

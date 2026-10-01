@@ -109,6 +109,8 @@ describe('renderDeck', () => {
     const view = renderDeck({ queue: [], index: 0 });
     assert.equal(view.focusKey, null);
     assert.match(view.html, /Все вакансии разобраны/);
+    assert.match(renderDeck({ queue: [], index: 0 }, { scanIntervalMinutes: 10 }).html, /каждые 10 минут\./);
+    assert.match(renderDeck({ queue: [], index: 0 }, { scanIntervalMinutes: 1 }).html, /каждые 1 минуту\./);
     assert.deepEqual(actions(view.rows), [['refresh']]);
   });
 });
