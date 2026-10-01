@@ -1,0 +1,49 @@
+# Copy to config/profile.yaml and adjust. profile.yaml is gitignored (it holds personal data).
+
+candidate:
+  name: Іван
+  resumeFile: ~/Hellkitchen/doc/CV/handmade/cv_ua_fullstack_v3.pdf
+  englishLevel: A2
+  # Free text for the scoring model: what you want and what you don't.
+  preferences: |
+    Шукаю Fullstack / Backend (Node.js) / Frontend (React) позицію на TypeScript, рівень Middle+/Senior.
+    Пріоритет — продукти з AI: LLM, агенти, RAG, MCP, agentic-розробка.
+    Тільки віддалено. Українські компанії або компанії з україномовною командою.
+
+filters:
+  englishMax: B1          # postings that explicitly require more are dropped before Claude
+  minSalaryUsd: 0         # 0 = don't filter by salary
+  remoteOnly: true
+  maxAgeDays: 3
+  titleStopWords: [QA, PHP, Laravel, WordPress, Python, Java, .NET, "C#", Golang, Ruby, Flutter, iOS, Android, Intern, Trainee, Junior, DevOps, Designer, Дизайнер, Верстальник, Recruiter, SEO]
+  excludeCompanies: []
+
+scoring:
+  notifyThreshold: 60     # 0-100; vacancies below it are archived silently
+  maxAssessPerRun: 25     # Claude calls per run; the rest waits for the next run
+  assessModel: sonnet
+  letterModel: sonnet
+
+sources:
+  djinni:
+    enabled: true
+    common: {}
+    feeds:
+      # English filter is applied by Djinni where it works; keyword queries ignore it, we re-check ourselves.
+      - { primary_keyword: JavaScript, english_level: [no_english, basic, pre, intermediate] }
+      - { primary_keyword: Node.js,    english_level: [no_english, basic, pre, intermediate] }
+      - { primary_keyword: Fullstack,  english_level: [no_english, basic, pre, intermediate] }
+      - { primary_keyword: React.js,   english_level: [no_english, basic, pre, intermediate] }
+      - { primary_keyword: ML AI, any_of_keywords: "TypeScript Node.js React" }
+  dou:
+    enabled: true
+    common: { remote: "" }
+    feeds:
+      - { category: Node.js }
+      - { category: Front End }
+      - { category: AI/ML, search: TypeScript }
+      - { category: AI/ML, search: Node.js }
+
+bot:
+  scanIntervalMinutes: 30
+  quietHours: "23-8"      # Kyiv time; no automatic scans at night

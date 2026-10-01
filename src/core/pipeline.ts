@@ -1,0 +1,230 @@
+import type { Assessment } from '../schemas/assessment.ts';
+import { cefrRank } from '../schemas/cefr.ts';
+import type { Profile } from '../schemas/profile.ts';
+import { matchKey, rejectReason } from './filter.ts';
+import type { Llm, Notifier, Store, StoredVacancy, VacancySource } from './ports.ts';
+import { mapPool } from './pool.ts';
+
+/** Thrown by an Llm adapter when calls cannot succeed right now (usage limit, auth). */
+export class LlmUnavailableError extends Error {
+  override readonly name = 'LlmUnavailableError';
+}
+
+export interface PipelineDeps {
+  store: Store;
+  sources: VacancySource[];
+  llm: Llm;
+  notifier: Notifier;
+  profile: Profile;
+  resume: string;
+  now?: () => Date;
+  log?: (message: string) => void;
+  /** Parallel Claude calls. */
+  llmConcurrency?: number;
+}
+
+export interface ScanReport {
+  fetched: number;
+  inserted: number;
+  filtered: number;
+  duplicates: number;
+  assessed: number;
+  low: number;
+  ready: number;
+  notified: number;
+  errors: number;
+  deferred: number;
+  sourceErrors: string[];
+  llmUnavailable: boolean;
+}
+
+const MAX_ATTEMPTS = 3;
+const SCAN_LOCK_TTL_MS = 30 * 60_000;
+
+export async function runScan(deps: PipelineDeps): Promise<ScanReport | 'locked'> {
+  const { store } = deps;
+  if (!store.acquireLock('scan', SCAN_LOCK_TTL_MS)) return 'locked';
+  try {
+    return await scan(deps);
+  } finally {
+    store.releaseLock('scan');
+  }
+}
+
+async function scan(deps: PipelineDeps): Promise<ScanReport> {
+  const { store, sources, profile } = deps;
+  const now = deps.now ?? (() => new Date());
+  const log = deps.log ?? (() => {});
+  const report: ScanReport = {
+    fetched: 0,
+    inserted: 0,
+    filtered: 0,
+    duplicates: 0,
+    assessed: 0,
+    low: 0,
+    ready: 0,
+    notified: 0,
+    errors: 0,
+    deferred: 0,
+    sourceErrors: [],
+    llmUnavailable: false,
+  };
+
+  // 1. Collect.
+  for (const source of sources) {
+    try {
+      const items = await source.fetchLatest();
+      report.fetched += items.length;
+      for (const item of items) if (store.insertIfAbsent(item)) report.inserted++;
+    } catch (error) {
+      const message = `${source.id}: ${errorText(error)}`;
+      report.sourceErrors.push(message);
+      store.log('source_error', null, message);
+      log(`source failed — ${message}`);
+    }
+  }
+
+  // 2. Cheap gates: rules, enrichment, rules again, cross-board duplicates.
+  const sourceById = new Map(sources.map((s) => [s.id, s]));
+  const pending = store
+    .listByStatus(['new', 'error'])
+    .filter((v) => v.attempts < MAX_ATTEMPTS)
+    .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+
+  const candidates: StoredVacancy[] = [];
+  for (const stored of pending) {
+    let vacancy: StoredVacancy = stored;
+    let reason = rejectReason(vacancy, profile.filters, now());
+
+    const source = sourceById.get(vacancy.source);
+    if (!reason && !vacancy.enriched && source?.enrich) {
+      try {
+        const enriched = await source.enrich(vacancy);
+        vacancy = { ...vacancy, ...enriched, enriched: true };
+        store.update(vacancy.key, { enriched: true, company: vacancy.company, meta: vacancy.meta });
+        reason = rejectReason(vacancy, profile.filters, now());
+      } catch (error) {
+        // Feed data is still usable; the LLM sees the full description anyway.
+        store.log('enrich_error', vacancy.key, errorText(error));
+      }
+    }
+
+    if (reason) {
+      store.update(vacancy.key, { status: 'filtered', reason });
+      report.filtered++;
+      continue;
+    }
+
+    const key = matchKey(vacancy);
+    store.update(vacancy.key, { matchKey: key });
+    const original = key ? store.findCrossPost(key, vacancy.source) : undefined;
+    if (original) {
+      store.update(vacancy.key, { status: 'duplicate', reason: `same as ${original}` });
+      report.duplicates++;
+      continue;
+    }
+    candidates.push(vacancy);
+  }
+
+  // 3. LLM: assess, then write letters for the ones worth it.
+  const budget = candidates.slice(0, profile.scoring.maxAssessPerRun);
+  report.deferred = candidates.length - budget.length;
+  let llmDown = false;
+
+  // Vacancies rated earlier that clear a (since lowered) threshold only need a letter.
+  const promotable = store
+    .listByStatus(['low'])
+    .filter((v) => v.assessment && v.reason?.startsWith('score:') && (v.score ?? 0) >= profile.scoring.notifyThreshold)
+    .filter((v) => !rejectReason(v, profile.filters, now()));
+
+  const tasks: Array<{ vacancy: StoredVacancy; run: () => Promise<void> }> = [
+    ...promotable.map((v) => ({ vacancy: v, run: () => writeLetterFor(v, v.assessment!, deps, report) })),
+    ...budget.map((v) => ({ vacancy: v, run: () => processWithLlm(v, deps, report) })),
+  ];
+
+  await mapPool(tasks, deps.llmConcurrency ?? 3, async ({ vacancy, run }) => {
+    if (llmDown) return;
+    try {
+      await run();
+    } catch (error) {
+      if (error instanceof LlmUnavailableError) {
+        llmDown = true;
+        report.llmUnavailable = true;
+        store.log('llm_unavailable', vacancy.key, error.message);
+        log(`LLM unavailable, stopping this run — ${error.message}`);
+        return;
+      }
+      report.errors++;
+      store.update(vacancy.key, { status: 'error', reason: errorText(error), attempts: vacancy.attempts + 1 });
+      store.log('process_error', vacancy.key, errorText(error));
+      log(`failed ${vacancy.key} — ${errorText(error)}`);
+    }
+  });
+
+  // 4. Deliver everything that is ready (including leftovers from earlier runs).
+  report.notified = await deliverReady(store, deps.notifier, log);
+
+  store.setKv('last_scan', JSON.stringify({ at: now().toISOString(), ...report }));
+  return report;
+}
+
+async function processWithLlm(vacancy: StoredVacancy, deps: PipelineDeps, report: ScanReport): Promise<void> {
+  const { store, llm, profile, resume } = deps;
+  const { candidate, filters, scoring } = profile;
+
+  const assessment = await llm.assess({
+    vacancy,
+    resume,
+    preferences: candidate.preferences,
+    englishLevel: candidate.englishLevel,
+    englishMax: filters.englishMax,
+  });
+  report.assessed++;
+  store.log('assessed', vacancy.key, { score: assessment.score, verdict: assessment.verdict });
+
+  const englishTooHigh =
+    assessment.englishRequired !== 'unknown' && cefrRank(assessment.englishRequired) > cefrRank(filters.englishMax);
+  const lowReason = englishTooHigh
+    ? `english:${assessment.englishRequired}`
+    : assessment.verdict === 'skip'
+      ? 'verdict:skip'
+      : assessment.score < scoring.notifyThreshold
+        ? `score:${assessment.score}`
+        : null;
+
+  if (lowReason) {
+    store.update(vacancy.key, { status: 'low', reason: lowReason, score: assessment.score, assessment });
+    report.low++;
+    return;
+  }
+
+  await writeLetterFor(vacancy, assessment, deps, report);
+}
+
+async function writeLetterFor(vacancy: StoredVacancy, assessment: Assessment, deps: PipelineDeps, report: ScanReport): Promise<void> {
+  const { store, llm, profile, resume } = deps;
+  const letter = await llm.writeLetter({ vacancy, resume, candidateName: profile.candidate.name, assessment });
+  store.update(vacancy.key, { status: 'ready', reason: null, score: assessment.score, assessment, letter });
+  report.ready++;
+}
+
+export async function deliverReady(store: Store, notifier: Notifier, log: (m: string) => void = () => {}): Promise<number> {
+  const ready = store.listByStatus(['ready']).reverse(); // oldest first, so the newest card ends up at the bottom
+  let delivered = 0;
+  for (const vacancy of ready) {
+    try {
+      const messageId = await notifier.sendCard(vacancy);
+      if (messageId === undefined) break; // delivery not configured: keep them queued
+      store.update(vacancy.key, { status: 'notified', tgMessageId: messageId });
+      store.log('notified', vacancy.key, { messageId });
+      delivered++;
+    } catch (error) {
+      store.log('notify_error', vacancy.key, errorText(error));
+      log(`notify failed ${vacancy.key} — ${errorText(error)}`);
+      break; // Telegram down or misconfigured: retry the queue next run
+    }
+  }
+  return delivered;
+}
+
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error)).slice(0, 500);

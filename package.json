@@ -1,0 +1,29 @@
+{
+  "name": "job-hunter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal job-hunting assistant: watches Djinni/DOU, scores vacancies and drafts cover letters with Claude, delivers cards to Telegram.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "scan": "node --disable-warning=ExperimentalWarning src/cli.ts scan",
+    "bot": "node --disable-warning=ExperimentalWarning src/cli.ts bot",
+    "stats": "node --disable-warning=ExperimentalWarning src/cli.ts stats",
+    "show": "node --disable-warning=ExperimentalWarning src/cli.ts show",
+    "why": "node --disable-warning=ExperimentalWarning src/cli.ts why",
+    "test": "node --disable-warning=ExperimentalWarning --test 'tests/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "grammy": "^1.46.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
+  }
+}
