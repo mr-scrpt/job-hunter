@@ -75,7 +75,7 @@ export function createApp(): App {
 
   const token = loadToken();
   const bot = token ? new Bot(token) : undefined;
-  const deck = bot ? new DeckController(bot.api, store) : undefined;
+  const deck = bot ? new DeckController(bot.api, store, profile.candidate.contact) : undefined;
   const telegram = bot && deck ? { bot, deck } : undefined;
   const notifier = deck ? new TelegramNotifier(deck) : disabledNotifier;
 

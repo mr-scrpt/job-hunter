@@ -15,6 +15,12 @@ candidate:
   # Matching is case-insensitive from the word start, so a stem covers its forms ("факторинг" → "факторингу").
   neverMention: [Initech, Umbrella, GLOBEX, proptech, мікрокредит, lending, ломбард, pawnshop, факторинг, factoring, Contoso, ACME CORP, ACMECORP, HOOLI, VANDELAY]
 
+  # Tap-to-copy fields shown on every vacancy for application forms.
+  contact:
+    fullName: Ім'я Прізвище
+    email: you@example.com
+    phone: "+380 00 000 0000"   # first group = country code (shown apart from the number)
+
 filters:
   englishMax: A2          # reading only: anything needing B1+ is dropped, before Claude (stated level) and after (Claude's estimate)
   minSalaryUsd: 0         # 0 = don't filter by salary

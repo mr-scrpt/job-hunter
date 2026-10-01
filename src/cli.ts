@@ -53,7 +53,7 @@ async function main(): Promise<void> {
       const statuses = (args.find((a) => !/^\d+$/.test(a))?.split(',') ?? ['ready', 'notified']) as Status[];
       const items = orderQueue(store.listByStatus(statuses)).slice(0, count);
       items.forEach((v, index) =>
-        console.log(`${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderDeck({ queue: items, index }).html)}\n`),
+        console.log(`${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderDeck({ queue: items, index }, { contact: profile.candidate.contact }).html)}\n`),
       );
       if (!items.length) console.log('Пусто.');
       break;

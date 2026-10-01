@@ -22,6 +22,26 @@ export interface DeckState {
   index: number;
 }
 
+export interface Contact {
+  fullName: string;
+  email?: string;
+  phone?: string;
+}
+
+const code = (text: string): string => `<code>${escapeHtml(text)}</code>`;
+
+/** Form-filling block: every value is its own <code> so one tap copies exactly that field. */
+export function renderContact(contact: Contact): string {
+  const lines = ['📝 <b>Для формы</b> (нажми на поле, чтобы скопировать):', `👤 ${code(contact.fullName)}`];
+  if (contact.email) lines.push(`✉️ ${code(contact.email)}`);
+  if (contact.phone) {
+    // Forms usually have a separate country selector, so the code is shown but not part of the copy.
+    const match = /^(\+\d{1,4})\s+(.+)$/.exec(contact.phone.trim());
+    lines.push(match ? `📱 ${escapeHtml(match[1]!)} ${code(match[2]!)}` : `📱 ${code(contact.phone)}`);
+  }
+  return lines.join('\n');
+}
+
 /** Best match first; ties broken by freshness. */
 export const orderQueue = (items: StoredVacancy[]): StoredVacancy[] =>
   [...items].sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.publishedAt.getTime() - a.publishedAt.getTime());
@@ -77,7 +97,7 @@ const navRow = (index: number, total: number): DeckButton[] => {
   return row;
 };
 
-export function renderDeck(state: DeckState, opts: { note?: string; busy?: string } = {}): DeckView {
+export function renderDeck(state: DeckState, opts: { note?: string; busy?: string; contact?: Contact } = {}): DeckView {
   const { queue, index } = state;
   const refresh: DeckButton = { kind: 'action', label: '🔄 Обновить', action: 'refresh' };
 
@@ -107,8 +127,9 @@ export function renderDeck(state: DeckState, opts: { note?: string; busy?: strin
   tail.push('', opts.busy ? `⏳ <i>${escapeHtml(opts.busy)}</i>` : '💬 <i>Напиши в чат, что поменять в отклике, или задай вопрос по вакансии.</i>');
 
   let html = head.join('\n');
+  if (opts.contact) html += `\n\n${renderContact(opts.contact)}`;
   if (v.letter) {
-    const intro = '\n\n✉️ <b>Отклик</b> (нажми на текст, чтобы скопировать):\n';
+    const intro = '\n\n💌 <b>Отклик</b> (нажми на текст, чтобы скопировать):\n';
     const budget = MESSAGE_MAX - html.length - intro.length - tail.join('\n').length - 20;
     html += `${intro}<pre>${escapeHtml(truncate(v.letter, Math.max(200, budget)))}</pre>`;
   }

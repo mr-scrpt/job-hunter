@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { anchor, announcement, decodeDeckCallback, encodeDeckCallback, orderQueue, plural, renderDeck, step } from '../src/core/deck.ts';
+import { anchor, announcement, decodeDeckCallback, encodeDeckCallback, orderQueue, plural, renderContact, renderDeck, step } from '../src/core/deck.ts';
 import type { StoredVacancy } from '../src/core/ports.ts';
 
 const item = (id: string, score: number, over: Partial<StoredVacancy> = {}): StoredVacancy => ({
@@ -92,6 +92,17 @@ describe('renderDeck', () => {
     const { html } = renderDeck({ queue: [item('9', 80, { letter: 'дуже довгий текст '.repeat(500) })], index: 0 });
     assert.ok(html.length <= 4096, `length ${html.length}`);
     assert.match(html, /…<\/pre>/);
+  });
+
+  it('shows contact fields as separate tap-to-copy blocks, before the letter', () => {
+    const contact = { fullName: "Іван Петренко", email: 'me@example.com', phone: '+380 00 123 4567' };
+    const { html } = renderDeck({ queue, index: 0 }, { contact });
+    assert.match(html, /👤 <code>Іван Петренко<\/code>/);
+    assert.match(html, /✉️ <code>me@example\.com<\/code>/);
+    assert.match(html, /📱 \+380 <code>00 123 4567<\/code>/); // country code outside the copy
+    assert.ok(html.indexOf('Для формы') < html.indexOf('<pre>'));
+    assert.match(renderContact({ fullName: 'X', phone: '0930503273' }), /📱 <code>0930503273<\/code>/);
+    assert.doesNotMatch(renderDeck({ queue, index: 0 }).html, /Для формы/);
   });
 
   it('renders the empty state', () => {

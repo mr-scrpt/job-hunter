@@ -1,6 +1,6 @@
 import { GrammyError, type Api } from 'grammy';
 import type { InlineKeyboardButton } from 'grammy/types';
-import { anchor, encodeDeckCallback, orderQueue, renderDeck, step, type DeckState, type DeckView } from '../../core/deck.ts';
+import { anchor, encodeDeckCallback, orderQueue, renderDeck, step, type Contact, type DeckState, type DeckView } from '../../core/deck.ts';
 import type { Notifier, Store, StoredVacancy } from '../../core/ports.ts';
 import { announcement } from '../../core/deck.ts';
 
@@ -33,10 +33,12 @@ const keyboard = (view: DeckView): InlineKeyboardButton[][] =>
 export class DeckController {
   readonly #api: Api;
   readonly #store: Store;
+  readonly #contact: Contact | undefined;
 
-  constructor(api: Api, store: Store) {
+  constructor(api: Api, store: Store, contact?: Contact) {
     this.#api = api;
     this.#store = store;
+    this.#contact = contact;
   }
 
   get chatId(): string | undefined {
@@ -79,7 +81,7 @@ export class DeckController {
     if (!chatId) return false;
 
     const state = this.state();
-    const view = renderDeck(state, opts);
+    const view = renderDeck(state, { ...opts, contact: this.#contact });
     this.#save(view.focusKey, state.index);
     const markup = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: keyboard(view) } };
 

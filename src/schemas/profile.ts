@@ -26,6 +26,15 @@ export const ProfileSchema = z.object({
      * The model is told to describe that experience neutrally; letters are checked and fixed if they slip.
      */
     neverMention: z.array(z.string().min(1)).default([]),
+    /** Shown on every vacancy as tap-to-copy fields for application forms. */
+    contact: z
+      .object({
+        fullName: z.string().min(1),
+        email: z.string().min(1).optional(),
+        /** "+380 00 123 4567": the first group is the country code, shown apart from the number. */
+        phone: z.string().min(1).optional(),
+      })
+      .optional(),
   }),
   filters: z.object({
     /** Vacancies explicitly requiring a higher English level are dropped before the LLM. */
