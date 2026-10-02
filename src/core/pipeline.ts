@@ -1,12 +1,11 @@
 import type { Assessment } from '../schemas/assessment.ts';
 import { cefrRank, type Cefr } from '../schemas/cefr.ts';
 import type { Profile } from '../schemas/profile.ts';
-import { plural } from './deck.ts';
 import { assessedRejectReason, describeReason, matchKey, rejectReason } from './filter.ts';
 import { writeCheckedLetter } from './letter.ts';
 import type { Llm, Notifier, Store, StoredVacancy, VacancySource } from './ports.ts';
 import { mapPool } from './pool.ts';
-import { truncate } from './text.ts';
+import { plural, truncate } from './text.ts';
 
 /** Thrown by an Llm adapter when calls cannot succeed right now (usage limit, auth). */
 export class LlmUnavailableError extends Error {

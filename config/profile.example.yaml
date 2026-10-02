@@ -70,3 +70,9 @@ sources:
 bot:
   scanIntervalMinutes: 10
   quietHours: "23-8"      # Kyiv time; no automatic scans at night
+
+web:
+  port: 8790
+  # Address the board is opened at; Telegram links use it. Default: http://<LAN IP>:<port>.
+  # publicUrl: http://192.168.1.63:8790
+  historyDays: 30         # applied/skipped vacancies older than this drop off the board

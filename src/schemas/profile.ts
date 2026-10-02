@@ -77,6 +77,16 @@ export const ProfileSchema = z.object({
         .default('23-8'),
     })
     .default({ scanIntervalMinutes: 10, quietHours: '23-8' }),
+  web: z
+    .object({
+      host: z.string().default('0.0.0.0'),
+      port: z.number().int().positive().default(8790),
+      /** Address the board is opened at (LAN IP or a domain); used in Telegram links. */
+      publicUrl: z.url().optional(),
+      /** Applied/skipped vacancies older than this drop off the board. */
+      historyDays: z.number().int().positive().default(30),
+    })
+    .default({ host: '0.0.0.0', port: 8790, historyDays: 30 }),
 });
 
 export type Profile = z.infer<typeof ProfileSchema>;

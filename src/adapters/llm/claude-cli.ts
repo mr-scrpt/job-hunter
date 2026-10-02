@@ -82,7 +82,7 @@ export class ClaudeCli implements Llm {
     if (input.forbiddenTerms?.length) parts.push(forbiddenSection(input.forbiddenTerms));
 
     const output = await this.#run(this.#opts.letterModel, this.#letterSystem, parts.join('\n\n'), this.#letterSchema);
-    return LetterSchema.parse(output).letter.trim();
+    return cleanModelText(LetterSchema.parse(output).letter);
   }
 
   async chat(input: ChatInput): Promise<ChatReply> {
@@ -101,7 +101,7 @@ export class ClaudeCli implements Llm {
 
     const output = await this.#run(this.#opts.chatModel, this.#chatSystem, parts.join('\n\n'), this.#chatSchema);
     const reply = ChatReplySchema.parse(output);
-    return { reply: reply.reply.trim(), letter: reply.letter.trim() };
+    return { reply: cleanModelText(reply.reply), letter: cleanModelText(reply.letter) };
   }
 
   /** One retry on transient CLI failures; "unavailable" (limit, auth) fails fast. */
@@ -159,6 +159,17 @@ const forbiddenSection = (terms: string[]): string =>
 
 const section = (title: string, body: string): string => `<${tag(title)}>\n${body.trim()}\n</${tag(title)}>`;
 const tag = (title: string): string => title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '_');
+
+/**
+ * The prompt wraps inputs in XML-ish sections, and the model sometimes echoes a closing tag into the output
+ * ("Дмитро</letter>", even "</invoke>"). Letters are plain text: strip stray tags at the edges.
+ */
+export function cleanModelText(text: string): string {
+  return text
+    .replace(/^(?:\s*<\/?[a-z_][\w-]*>)+/i, '')
+    .replace(/(?:<\/?[a-z_][\w-]*>\s*)+$/i, '')
+    .trim();
+}
 
 export function renderVacancy(v: Vacancy): string {
   const m = v.meta;

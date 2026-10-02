@@ -2,3 +2,4 @@ node_modules/
 data/
 config/profile.yaml
 *.log
+web/dist/

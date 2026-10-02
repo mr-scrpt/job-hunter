@@ -1,16 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, networkInterfaces } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { Bot } from 'grammy';
 import { parse as parseYaml } from 'yaml';
 import { ClaudeCli } from './adapters/llm/claude-cli.ts';
 import { DjinniSource } from './adapters/sources/djinni.ts';
 import { DouSource } from './adapters/sources/dou.ts';
-import { RobotaSource } from './adapters/sources/robota.ts';
 import { HttpClient } from './adapters/sources/http.ts';
+import { RobotaSource } from './adapters/sources/robota.ts';
 import { SqliteStore } from './adapters/store/sqlite.ts';
-import { DeckController, disabledNotifier, TelegramNotifier } from './adapters/telegram/deck-controller.ts';
+import { silentNotifier, TelegramNotifier } from './adapters/telegram/bot.ts';
 import type { PipelineDeps, ScanReport } from './core/pipeline.ts';
 import type { Notifier, Store, VacancySource } from './core/ports.ts';
 import { ProfileSchema, type Profile } from './schemas/profile.ts';
@@ -27,7 +28,10 @@ export interface App {
   llm: ClaudeCli;
   notifier: Notifier;
   /** Present when a bot token is configured. */
-  telegram: { bot: Bot; deck: DeckController } | undefined;
+  bot: Bot | undefined;
+  /** Where the web board is opened, including the access key. */
+  boardUrl: string;
+  accessKey: string;
   pipeline: (overrides?: Partial<PipelineDeps>) => PipelineDeps;
 }
 
@@ -49,12 +53,37 @@ export function loadResume(file: string): string {
     .trim();
 }
 
+const SECRETS = '~/.local/share/secrets';
+
 /** Bot token: env var first, then the secrets file (never stored in the repo). */
 export function loadToken(): string | undefined {
   const fromEnv = process.env.JOB_HUNTER_TG_TOKEN?.trim();
   if (fromEnv) return fromEnv;
-  const file = expandHome(process.env.JOB_HUNTER_TOKEN_FILE ?? '~/.local/share/secrets/job-hunter.token');
+  const file = expandHome(process.env.JOB_HUNTER_TOKEN_FILE ?? `${SECRETS}/job-hunter.token`);
   return existsSync(file) ? readFileSync(file, 'utf8').trim() || undefined : undefined;
+}
+
+/** Web access key: env, else a secrets file created on first run (random, mode 600). */
+export function loadAccessKey(): string {
+  const fromEnv = process.env.JOB_HUNTER_WEB_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  const file = expandHome(process.env.JOB_HUNTER_WEB_KEY_FILE ?? `${SECRETS}/job-hunter-web.key`);
+  if (existsSync(file)) {
+    const key = readFileSync(file, 'utf8').trim();
+    if (key) return key;
+  }
+  const key = randomBytes(18).toString('base64url');
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, `${key}\n`, { mode: 0o600 });
+  return key;
+}
+
+/** First non-internal IPv4: the default board address when web.publicUrl is not set. */
+function lanAddress(): string {
+  for (const list of Object.values(networkInterfaces())) {
+    for (const a of list ?? []) if (a.family === 'IPv4' && !a.internal) return a.address;
+  }
+  return 'localhost';
 }
 
 export function createApp(): App {
@@ -75,17 +104,13 @@ export function createApp(): App {
     bin: process.env.JOB_HUNTER_CLAUDE_BIN ?? 'claude',
   });
 
+  const accessKey = loadAccessKey();
+  const base = (profile.web.publicUrl ?? `http://${lanAddress()}:${profile.web.port}`).replace(/\/+$/, '');
+  const boardUrl = `${base}/?k=${accessKey}`;
+
   const token = loadToken();
   const bot = token ? new Bot(token) : undefined;
-  const deck = bot
-    ? new DeckController(bot.api, store, {
-        contact: profile.candidate.contact,
-        scanIntervalMinutes: profile.bot.scanIntervalMinutes,
-        englishLevel: profile.candidate.englishLevel,
-      })
-    : undefined;
-  const telegram = bot && deck ? { bot, deck } : undefined;
-  const notifier = deck ? new TelegramNotifier(deck) : disabledNotifier;
+  const notifier: Notifier = bot ? new TelegramNotifier(bot, store, boardUrl) : silentNotifier;
 
   const pipeline = (overrides: Partial<PipelineDeps> = {}): PipelineDeps => ({
     store,
@@ -98,7 +123,7 @@ export function createApp(): App {
     ...overrides,
   });
 
-  return { profile, resume, store, sources, llm, notifier, telegram, pipeline };
+  return { profile, resume, store, sources, llm, notifier, bot, boardUrl, accessKey, pipeline };
 }
 
 export function formatReport(report: ScanReport | 'locked'): string {
@@ -107,10 +132,10 @@ export function formatReport(report: ScanReport | 'locked'): string {
     `Новых вакансий: ${report.inserted} (в лентах ${report.fetched})`,
     `Отсеяно фильтрами: ${report.filtered}, дублей: ${report.duplicates}`,
     `Оценено Claude: ${report.assessed} → подходят ${report.ready}, слабые ${report.low}`,
-    `Отправлено карточек: ${report.notified}`,
+    `Добавлено на доску: ${report.notified}`,
   ];
   if (report.deferred) lines.push(`Отложено до следующей проверки: ${report.deferred}`);
-  if (report.unqueued) lines.push(`Убрано из очереди по новым фильтрам: ${report.unqueued}`);
+  if (report.unqueued) lines.push(`Убрано с доски по новым фильтрам: ${report.unqueued}`);
   if (report.revived) lines.push(`Возвращено на переоценку (смягчён английский): ${report.revived}`);
   if (report.errors) lines.push(`Ошибок обработки: ${report.errors}`);
   if (report.llmUnavailable) lines.push('⚠️ Claude недоступен (лимит подписки или нет входа) — продолжу позже.');
@@ -119,14 +144,14 @@ export function formatReport(report: ScanReport | 'locked'): string {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  new: 'в очереди',
+  new: 'в очереди на оценку',
   filtered: 'отсеяно фильтрами',
   duplicate: 'дубли',
   low: 'не подошли',
-  ready: 'ждут отправки в чат',
-  notified: 'в очереди на разбор',
+  ready: 'ждут публикации',
+  notified: 'на доске, ждут решения',
   applied: 'откликнулся',
-  skipped: 'пропущено',
+  skipped: 'не интересно',
   error: 'ошибки',
 };
 

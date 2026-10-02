@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ship the committed code to the always-on host and restart the bot there.
+# Ship the committed code to the always-on host, build the web board, restart the service.
 #   deploy/deploy.sh            # host alias "station" (Proxmox VM claude-station)
 #   DEPLOY_HOST=other deploy/deploy.sh
 # Personal files (config/profile.yaml, CV, secrets) are not in git; copy them once by hand.
@@ -20,6 +20,7 @@ ssh "$HOST" bash -lc "'
   cd $DIR
   git fetch -q origin && git reset -q --hard origin/main
   mise exec -- npm ci --no-audit --no-fund --silent
+  mise exec -- npm run build --silent >/dev/null
   mise exec -- npm test 2>&1 | grep -E \"^ℹ (pass|fail)\"
   mkdir -p ~/.config/systemd/user
   ln -sf \"\$PWD/deploy/systemd/job-hunter.service\" ~/.config/systemd/user/job-hunter.service

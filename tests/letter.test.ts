@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { cleanModelText } from '../src/adapters/llm/claude-cli.ts';
 import { checkedChat, findForbiddenTerms, ForbiddenTermsError, writeCheckedLetter } from '../src/core/letter.ts';
 import type { ChatInput, ChatReply, LetterInput, Llm } from '../src/core/ports.ts';
 
@@ -77,5 +78,14 @@ describe('checkedChat', () => {
     const result = await checkedChat(llm, { ...input, message: 'короче' } as ChatInput, TERMS);
     assert.deepEqual(result, { reply: 'Сократил.', letter: 'Чистий лист' });
     assert.equal(calls[0]?.previousLetter, 'Досвід у GLOBEX');
+  });
+});
+
+describe('cleanModelText', () => {
+  it('strips echoed prompt tags at the edges, keeps the text', () => {
+    assert.equal(cleanModelText('Буду радий.\nДмитро</letter>'), 'Буду радий.\nДмитро');
+    assert.equal(cleanModelText('Дмитро</letter>\n</invoke>'), 'Дмитро');
+    assert.equal(cleanModelText('<letter>\nДобрий день!'), 'Добрий день!');
+    assert.equal(cleanModelText('Пишу на TypeScript <3 і React'), 'Пишу на TypeScript <3 і React');
   });
 });

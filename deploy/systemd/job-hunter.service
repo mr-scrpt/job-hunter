@@ -1,5 +1,5 @@
 [Unit]
-Description=job-hunter: Telegram bot + vacancy scans (Djinni/DOU, Claude)
+Description=job-hunter: web board + Telegram notifications + vacancy scans (Djinni/DOU/Robota.ua, Claude)
 After=network-online.target
 Wants=network-online.target
 
@@ -12,7 +12,7 @@ EnvironmentFile=-%h/.local/share/secrets/claude-oauth.env
 # The native claude installer puts the binary in ~/.local/bin, which systemd's PATH lacks.
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # mise puts node (from .mise.toml) on PATH.
-ExecStart=/usr/bin/mise exec -- node --disable-warning=ExperimentalWarning src/cli.ts bot
+ExecStart=/usr/bin/mise exec -- node --disable-warning=ExperimentalWarning src/cli.ts serve
 Restart=on-failure
 RestartSec=30
 # Missing token/profile is a config error, not a crash: don't hammer restarts.

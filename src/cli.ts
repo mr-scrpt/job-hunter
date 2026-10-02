@@ -1,21 +1,22 @@
-import { createApp, formatReport, formatStats } from './app.ts';
+import { join } from 'node:path';
+import { serve } from '@hono/node-server';
+import { createApp, formatReport, formatStats, ROOT } from './app.ts';
 import { createBot } from './adapters/telegram/bot.ts';
-import { orderQueue, renderDeck } from './core/deck.ts';
+import { createWebApp } from './adapters/web/server.ts';
+import { buildBoardItems } from './core/board.ts';
 import { findForbiddenTerms, writeCheckedLetter } from './core/letter.ts';
 import { addFromUrl, deliverReady, runScan } from './core/pipeline.ts';
-import { decodeEntities } from './core/text.ts';
 import type { Status } from './core/ports.ts';
 
 const USAGE = `job-hunter <command>
 
-  scan [--limit N]   fetch feeds, filter, assess with Claude, deliver cards
-  bot                Telegram bot + scheduled scans (long-running)
+  serve              web board + Telegram notifications + scheduled scans (long-running; "bot" is an alias)
+  scan [--limit N]   fetch feeds, filter, assess with Claude, publish to the board
   stats              counters
-  show [N] [status]  print the N best cards to the terminal (default: 5, ready+notified)
+  show [N] [status]  print the N best vacancies (default: 5, open ones)
   why <key>          show stored data for one vacancy, e.g. why djinni:850653
-  relint             rewrite open letters that mention candidate.neverMention terms`;
-
-const htmlToTerminal = (html: string): string => decodeEntities(html.replace(/<[^>]+>/g, ''));
+  relint             rewrite open letters that mention candidate.neverMention terms
+  link               print the board link (with the access key)`;
 
 function inQuietHours(spec: string, now = new Date()): boolean {
   const match = /^(\d{1,2})-(\d{1,2})$/.exec(spec);
@@ -38,9 +39,7 @@ async function main(): Promise<void> {
       const limitArg = args.indexOf('--limit');
       const limit = limitArg >= 0 ? Number(args[limitArg + 1]) : undefined;
       const scoped = limit ? { ...profile, scoring: { ...profile.scoring, maxAssessPerRun: limit } } : profile;
-      const report = await runScan(app.pipeline({ profile: scoped }));
-      console.log(formatReport(report));
-      if (!app.telegram) console.log('\nTelegram не настроен — вакансии лежат в базе, смотри `npm run show`.');
+      console.log(formatReport(await runScan(app.pipeline({ profile: scoped }))));
       break;
     }
 
@@ -48,15 +47,18 @@ async function main(): Promise<void> {
       console.log(formatStats(store));
       break;
 
+    case 'link':
+      console.log(app.boardUrl);
+      break;
+
     case 'show': {
       const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 5);
       const statuses = (args.find((a) => !/^\d+$/.test(a))?.split(',') ?? ['ready', 'notified']) as Status[];
-      const items = orderQueue(store.listByStatus(statuses), profile.candidate.englishLevel).slice(0, count);
-      items.forEach((v, index) =>
-        console.log(
-          `${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderDeck({ queue: items, index }, { contact: profile.candidate.contact, englishLevel: profile.candidate.englishLevel }).html)}\n`,
-        ),
-      );
+      const items = buildBoardItems(store.listByStatus(statuses), profile.candidate.englishLevel).slice(0, count);
+      for (const i of items) {
+        const english = i.english ? ` · EN ${i.english}${i.stretch ? ' ⚠️' : ''}` : '';
+        console.log(`${'─'.repeat(70)}\n${i.key} · ${i.section} · ${i.score}${english}\n${i.title} — ${i.company ?? '?'}\n${i.url}\n\n${i.letter ?? ''}\n`);
+      }
       if (!items.length) console.log('Пусто.');
       break;
     }
@@ -70,11 +72,11 @@ async function main(): Promise<void> {
     }
 
     case 'relint': {
-      // Open cards whose letters mention a term from candidate.neverMention get a fresh letter, edited in place.
+      // Open vacancies whose letters mention a term from candidate.neverMention get a fresh letter.
       const terms = profile.candidate.neverMention;
       const open = store.listByStatus(['ready', 'notified']).filter((v) => v.letter && v.assessment);
       const dirty = open.filter((v) => findForbiddenTerms(v.letter!, terms).length > 0);
-      console.log(`Открытых карточек: ${open.length}, с запрещёнными словами: ${dirty.length}`);
+      console.log(`Открытых: ${open.length}, с запрещёнными словами: ${dirty.length}`);
       for (const v of dirty) {
         const letter = await writeCheckedLetter(
           app.llm,
@@ -85,46 +87,61 @@ async function main(): Promise<void> {
         store.log('relinted', v.key);
         console.log(`${'─'.repeat(70)}\n${v.key}\n${letter}\n`);
       }
-      if (dirty.length && app.telegram) await app.telegram.deck.show();
       break;
     }
 
+    case 'serve':
     case 'bot': {
-      if (!app.telegram) throw new Error('No bot token: put it into ~/.local/share/secrets/job-hunter.token (or JOB_HUNTER_TG_TOKEN).');
       const log = (m: string) => console.error(`[${new Date().toISOString()}] ${m}`);
-      const scan = async (): Promise<string> => formatReport(await runScan(app.pipeline({ log })));
 
-      const bot = createBot({
-        bot: app.telegram.bot,
-        deck: app.telegram.deck,
+      // One scan at a time in this process, whoever asks (timer, /scan, the web button).
+      let scanning: Promise<string> | undefined;
+      const scan = (): Promise<string> => {
+        scanning ??= runScan(app.pipeline({ log }))
+          .then(formatReport)
+          .finally(() => (scanning = undefined));
+        return scanning;
+      };
+
+      const web = createWebApp({
         store,
         llm: app.llm,
+        resume: app.resume,
         candidateName: profile.candidate.name,
         neverMention: profile.candidate.neverMention,
-        resume: app.resume,
+        englishLevel: profile.candidate.englishLevel,
+        contact: profile.candidate.contact ?? null,
+        scanIntervalMinutes: profile.bot.scanIntervalMinutes,
+        accessKey: app.accessKey,
+        staticDir: join(ROOT, 'web/dist'),
+        historyDays: profile.web.historyDays,
         scan,
-        stats: () => formatStats(store),
+        isScanning: () => scanning !== undefined,
         addFromUrl: (url) => addFromUrl(app.pipeline({ log }), url),
-        onBound: () => deliverReady(store, app.notifier, log),
         log,
       });
-      await bot.api.setMyCommands([
-        { command: 'list', description: 'Вакансии на разбор' },
-        { command: 'scan', description: 'Проверить вакансии сейчас' },
-        { command: 'stats', description: 'Статистика' },
-        { command: 'help', description: 'Что я умею' },
-      ]);
+      const server = serve({ fetch: web.fetch, hostname: profile.web.host, port: profile.web.port }, (info) =>
+        log(`web board on ${info.address}:${info.port} → ${app.boardUrl.replace(/k=.*/, 'k=…')}`),
+      );
+
+      const bot = app.bot ? createBot({ bot: app.bot, store, boardUrl: app.boardUrl, scan, stats: () => formatStats(store), log }) : undefined;
+      if (bot) {
+        await bot.api.setMyCommands([
+          { command: 'open', description: 'Открыть вакансии' },
+          { command: 'scan', description: 'Проверить вакансии сейчас' },
+          { command: 'stats', description: 'Статистика' },
+        ]);
+      } else {
+        log('no Telegram token: notifications are off, the board still works');
+      }
 
       const intervalMs = profile.bot.scanIntervalMinutes * 60_000;
       let timer: NodeJS.Timeout | undefined;
       const tick = async (): Promise<void> => {
         try {
-          if (inQuietHours(profile.bot.quietHours)) {
-            // Still flush cards produced earlier (e.g. by a manual /scan) — nothing new is fetched.
-            await deliverReady(store, app.notifier, log);
-          } else {
-            log(`scheduled scan\n${await scan()}`);
-          }
+          // Quiet hours: nothing is fetched, but vacancies produced earlier still get published.
+          if (inQuietHours(profile.bot.quietHours)) await deliverReady(store, app.notifier, log);
+          else log(`scheduled scan\n${await scan()}`);
         } catch (error) {
           log(`scheduled scan failed: ${String(error)}`);
         } finally {
@@ -135,15 +152,16 @@ async function main(): Promise<void> {
 
       const stop = async (): Promise<void> => {
         clearTimeout(timer);
-        await bot.stop();
+        await bot?.stop();
+        server.close();
         store.close();
         process.exit(0);
       };
       process.once('SIGINT', stop);
       process.once('SIGTERM', stop);
 
-      log(`bot started; scans every ${profile.bot.scanIntervalMinutes} min, quiet hours ${profile.bot.quietHours || 'none'}`);
-      await bot.start({ drop_pending_updates: false, allowed_updates: ['message', 'callback_query'] });
+      log(`started; scans every ${profile.bot.scanIntervalMinutes} min, quiet hours ${profile.bot.quietHours || 'none'}`);
+      if (bot) await bot.start({ drop_pending_updates: false, allowed_updates: ['message', 'callback_query'] });
       break;
     }
 
