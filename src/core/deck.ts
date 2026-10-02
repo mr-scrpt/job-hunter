@@ -1,3 +1,5 @@
+import type { Cefr } from '../schemas/cefr.ts';
+import { effectiveEnglish, englishStretch } from './filter.ts';
 import type { StoredVacancy } from './ports.ts';
 import { escapeHtml, truncate } from './text.ts';
 
@@ -42,9 +44,16 @@ export function renderContact(contact: Contact): string {
   return lines.join('\n');
 }
 
-/** Best match first; ties broken by freshness. */
-export const orderQueue = (items: StoredVacancy[]): StoredVacancy[] =>
-  [...items].sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || b.publishedAt.getTime() - a.publishedAt.getTime());
+/**
+ * Comfortable English first (when the candidate's level is given), then best match, then freshness.
+ * Vacancies needing more English than the candidate has stay in the deck but sink below the rest.
+ */
+export const orderQueue = (items: StoredVacancy[], comfort?: Cefr): StoredVacancy[] => {
+  const stretch = (v: StoredVacancy): number => (comfort && englishStretch(v, comfort) ? 1 : 0);
+  return [...items].sort(
+    (a, b) => stretch(a) - stretch(b) || (b.score ?? 0) - (a.score ?? 0) || b.publishedAt.getTime() - a.publishedAt.getTime(),
+  );
+};
 
 /**
  * Re-anchors the cursor after the queue changed: stays on the same vacancy if it is still queued,
@@ -60,7 +69,7 @@ export function step(state: DeckState, delta: -1 | 1): number {
   return Math.max(0, Math.min(state.index + delta, state.queue.length - 1));
 }
 
-const SOURCE_LABEL: Record<StoredVacancy['source'], string> = { djinni: 'Djinni', dou: 'DOU' };
+const SOURCE_LABEL: Record<StoredVacancy['source'], string> = { djinni: 'Djinni', dou: 'DOU', robota: 'Robota.ua' };
 const AI_LABEL = { none: 'нет', some: 'частично', core: 'в основе' } as const;
 const ROLE_LABEL = { frontend: 'frontend', backend: 'backend', fullstack: 'fullstack', other: 'другое' } as const;
 
@@ -76,14 +85,15 @@ function salaryLabel({ salaryMinUsd: min, salaryMaxUsd: max }: StoredVacancy['me
   return null;
 }
 
-function factsLine(v: StoredVacancy): string {
+function factsLine(v: StoredVacancy, comfort?: Cefr): string {
   const { meta } = v;
+  const english = effectiveEnglish(v);
   const facts = [
     v.company ?? 'компания не указана',
     SOURCE_LABEL[v.source],
-    salaryLabel(meta),
+    salaryLabel(meta) ?? meta.salaryText ?? null,
     meta.remote ? 'удалёнка' : null,
-    meta.english ? `EN ${meta.english}` : null,
+    english && !(comfort && englishStretch(v, comfort)) ? `EN ${english}` : null,
     meta.experienceYears !== undefined ? `опыт ${meta.experienceYears}+ г.` : null,
     meta.applicants !== undefined ? `откликов ${meta.applicants}` : null,
   ];
@@ -99,7 +109,7 @@ const navRow = (index: number, total: number): DeckButton[] => {
 
 export function renderDeck(
   state: DeckState,
-  opts: { note?: string; busy?: string; contact?: Contact; scanIntervalMinutes?: number } = {},
+  opts: { note?: string; busy?: string; contact?: Contact; scanIntervalMinutes?: number; englishLevel?: Cefr } = {},
 ): DeckView {
   const { queue, index } = state;
   const refresh: DeckButton = { kind: 'action', label: '🔄 Обновить', action: 'refresh' };
@@ -121,7 +131,9 @@ export function renderDeck(
   if (opts.note) head.push(`ℹ️ ${escapeHtml(opts.note)}`, '');
   head.push(`📋 <b>Вакансия ${index + 1} из ${queue.length}</b>`, '');
   head.push(`${scoreBadge(score)} <b>${score}</b> · <b>${escapeHtml(v.title)}</b>`);
-  head.push(`🏢 ${factsLine(v)}`);
+  head.push(`🏢 ${factsLine(v, opts.englishLevel)}`);
+  const stretch = opts.englishLevel ? englishStretch(v, opts.englishLevel) : undefined;
+  if (stretch) head.push(`⚠️ <b>Английский ${stretch}</b> — выше твоего ${opts.englishLevel}. Оценка без учёта языка, решай сам.`);
   if (a) {
     head.push(`🤖 AI: ${AI_LABEL[a.aiFocus]} · роль: ${ROLE_LABEL[a.role]}`);
     head.push('', `<i>${escapeHtml(a.summary)}</i>`);

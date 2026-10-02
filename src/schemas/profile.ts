@@ -37,7 +37,10 @@ export const ProfileSchema = z.object({
       .optional(),
   }),
   filters: z.object({
-    /** Vacancies explicitly requiring a higher English level are dropped before the LLM. */
+    /**
+     * Hard ceiling: vacancies requiring more English are dropped. Between candidate.englishLevel and this
+     * they are kept but flagged ⚠️ and listed after the comfortable ones.
+     */
     englishMax: CefrSchema.default('B2'),
     /** Dropped when the published salary ceiling is below this (USD/month). 0 = off. */
     minSalaryUsd: z.number().int().nonnegative().default(0),
@@ -59,6 +62,8 @@ export const ProfileSchema = z.object({
   sources: z.object({
     djinni: FeedSource,
     dou: FeedSource,
+    /** Robota.ua JSON API (`/vacancy/search` params, e.g. keyWords, scheduleId=3 for remote). */
+    robota: FeedSource.optional(),
   }),
   bot: z
     .object({

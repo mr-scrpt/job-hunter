@@ -26,10 +26,11 @@ export interface BotDeps {
 }
 
 const HISTORY_TURNS = 10;
-const URL_RE = /https?:\/\/(?:www\.)?(?:djinni\.co\/jobs\/\d+|jobs\.dou\.ua\/companies\/[^\s/]+\/vacancies\/\d+)\S*/i;
+const URL_RE =
+  /https?:\/\/(?:www\.)?(?:djinni\.co\/jobs\/\d+|jobs\.dou\.ua\/companies\/[^\s/]+\/vacancies\/\d+|(?:robota|rabota)\.ua\/(?:[a-z]{2}\/)?(?:company\d+\/)?vacancy\d+)\S*/i;
 
 const HELP = [
-  'Я подбираю вакансии с Djinni и DOU и готовлю отклики.',
+  'Я подбираю вакансии с Djinni, DOU и Robota.ua и готовлю отклики.',
   '',
   'Все вакансии на разбор — в одном сообщении: ◀️ ▶️ листают, ✅ Отправил и ⏭ Пропустить убирают текущую из очереди.',
   '',
@@ -37,7 +38,7 @@ const HELP = [
   '• «короче», «добавь про NestJS», «убери абзац про безопасность» — перепишу отклик;',
   '• «что за компания?», «стоит ли откликаться?» — отвечу по вакансии.',
   '',
-  'Прислал ссылку на вакансию Djinni или DOU — разберу её и напишу отклик.',
+  'Прислал ссылку на вакансию Djinni, DOU или Robota.ua — разберу её и напишу отклик.',
   '',
   '/list — показать очередь внизу чата',
   '/scan — проверить вакансии сейчас',
@@ -193,7 +194,7 @@ export function createBot(deps: BotDeps): Bot {
     const assessment = vacancy?.assessment;
     const letter = vacancy?.letter;
     if (!vacancy || !assessment || !letter) {
-      return void (await ctx.reply('Сейчас нет открытой вакансии. Пришли ссылку на вакансию Djinni/DOU или дождись новых.'));
+      return void (await ctx.reply('Сейчас нет открытой вакансии. Пришли ссылку на вакансию Djinni/DOU/Robota.ua или дождись новых.'));
     }
 
     const started = await exclusive('chat', async () => {

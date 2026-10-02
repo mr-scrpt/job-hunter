@@ -2,14 +2,14 @@
 
 Personal job-search assistant for the Ukrainian IT market.
 
-Every 10 minutes (configurable, quiet at night) it reads the Djinni and DOU vacancy feeds, drops what clearly doesn't fit, asks Claude to rate the rest against the CV, writes a tailored cover letter (in Ukrainian) for the good ones and queues them in a single Telegram message you browse with ◀️ ▶️. You read the vacancy, tweak the letter by just writing in the chat, copy it, apply on the site and press "✅ Отправил".
+Every 10 minutes (configurable, quiet at night) it reads the Djinni and DOU vacancy feeds and the Robota.ua API, drops what clearly doesn't fit, asks Claude to rate the rest against the CV, writes a tailored cover letter (in Ukrainian) for the good ones and queues them in a single Telegram message you browse with ◀️ ▶️. You read the vacancy, tweak the letter by just writing in the chat, copy it, apply on the site and press "✅ Отправил".
 
 Applying itself stays manual on purpose: DOU forbids automated applications, and a human glance per vacancy keeps the quality up.
 
 ## How it works
 
 ```
-RSS (Djinni, DOU) ──► rules filter ──► page enrichment ──► rules again ──► cross-board dedupe
+RSS (Djinni, DOU), API (Robota.ua) ──► rules filter ──► page enrichment ──► rules again ──► cross-board dedupe
                        (age, title       (Djinni: company,     (English,
                         stop-words,       salary, English)      salary, remote)
                         company)
@@ -98,6 +98,8 @@ Production runs on the Proxmox VM `claude-station` (ssh alias `station`, user `a
 
 - Too much noise → raise `scoring.notifyThreshold`, add `filters.titleStopWords`.
 - Too little → lower the threshold (already-rated vacancies are promoted without re-rating), add feeds.
-- `filters.englishMax` drops postings that explicitly ask for more; Claude also estimates the real requirement from the text (calls, English-speaking team → at least B1).
+- English has two levels. `candidate.englishLevel` is what you actually have; `filters.englishMax` is the hard ceiling. Vacancies needing more than the ceiling are dropped; those between the two stay in the deck with "⚠️ Английский B2" and are listed after the comfortable ones. The requirement is the stricter of what the page states and what Claude reads from the text (calls, English-speaking team → at least B1).
+- Relaxing `englishMax` brings back vacancies rejected only for English (if still fresh) and re-assesses them.
 - Filter changes apply to the queue too: on the next scan, queued vacancies that no longer pass are removed and the deck says which and why. Links you pasted yourself are never removed.
-- Feed parameters are Djinni/DOU URL query params; build a search on the site and copy them.
+- Feed parameters are Djinni/DOU URL query params (build a search on the site and copy them) and Robota.ua `/vacancy/search` params (`keyWords`, `scheduleId: 3` = remote).
+- Work.ua is not supported: it sits behind a Cloudflare bot challenge and has no feed or API.

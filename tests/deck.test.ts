@@ -61,6 +61,24 @@ describe('queue order and cursor', () => {
   });
 });
 
+describe('English comfort vs ceiling', () => {
+  const b2 = item('b2', 90, { meta: { english: 'B2' } });
+  const inferredB1 = item('b1', 85, { assessment: { ...item('x', 85).assessment!, englishRequired: 'B1' } });
+  const fine = item('ok', 70, { assessment: { ...item('x', 70).assessment!, englishRequired: 'unknown' } });
+
+  it('lists comfortable vacancies first, then the stretch ones by score', () => {
+    assert.deepEqual(orderQueue([b2, inferredB1, fine], 'A2').map((v) => v.externalId), ['ok', 'b2', 'b1']);
+    assert.deepEqual(orderQueue([b2, inferredB1, fine]).map((v) => v.externalId), ['b2', 'b1', 'ok']); // no level known
+  });
+
+  it('flags the stretch on the card, using the stricter of page and Claude', () => {
+    const { html } = renderDeck({ queue: [b2], index: 0 }, { englishLevel: 'A2' });
+    assert.match(html, /⚠️ <b>Английский B2<\/b> — выше твоего A2/);
+    assert.doesNotMatch(html, /· EN B2/);
+    assert.doesNotMatch(renderDeck({ queue: [fine], index: 0 }, { englishLevel: 'A2' }).html, /⚠️/);
+  });
+});
+
 describe('renderDeck', () => {
   const queue = orderQueue([item('1', 82, { title: 'Senior <AI> Engineer', meta: { salaryMinUsd: 3000, salaryMaxUsd: 4500, remote: true } }), item('2', 70), item('3', 65)]);
 

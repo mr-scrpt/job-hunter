@@ -7,6 +7,7 @@ import { parse as parseYaml } from 'yaml';
 import { ClaudeCli } from './adapters/llm/claude-cli.ts';
 import { DjinniSource } from './adapters/sources/djinni.ts';
 import { DouSource } from './adapters/sources/dou.ts';
+import { RobotaSource } from './adapters/sources/robota.ts';
 import { HttpClient } from './adapters/sources/http.ts';
 import { SqliteStore } from './adapters/store/sqlite.ts';
 import { DeckController, disabledNotifier, TelegramNotifier } from './adapters/telegram/deck-controller.ts';
@@ -65,6 +66,7 @@ export function createApp(): App {
   const sources: VacancySource[] = [];
   if (profile.sources.djinni.enabled) sources.push(new DjinniSource(profile.sources.djinni, http));
   if (profile.sources.dou.enabled) sources.push(new DouSource(profile.sources.dou, http));
+  if (profile.sources.robota?.enabled) sources.push(new RobotaSource(profile.sources.robota, http));
 
   const llm = new ClaudeCli({
     promptsDir: join(ROOT, 'prompts'),
@@ -76,7 +78,11 @@ export function createApp(): App {
   const token = loadToken();
   const bot = token ? new Bot(token) : undefined;
   const deck = bot
-    ? new DeckController(bot.api, store, { contact: profile.candidate.contact, scanIntervalMinutes: profile.bot.scanIntervalMinutes })
+    ? new DeckController(bot.api, store, {
+        contact: profile.candidate.contact,
+        scanIntervalMinutes: profile.bot.scanIntervalMinutes,
+        englishLevel: profile.candidate.englishLevel,
+      })
     : undefined;
   const telegram = bot && deck ? { bot, deck } : undefined;
   const notifier = deck ? new TelegramNotifier(deck) : disabledNotifier;
@@ -105,6 +111,7 @@ export function formatReport(report: ScanReport | 'locked'): string {
   ];
   if (report.deferred) lines.push(`Отложено до следующей проверки: ${report.deferred}`);
   if (report.unqueued) lines.push(`Убрано из очереди по новым фильтрам: ${report.unqueued}`);
+  if (report.revived) lines.push(`Возвращено на переоценку (смягчён английский): ${report.revived}`);
   if (report.errors) lines.push(`Ошибок обработки: ${report.errors}`);
   if (report.llmUnavailable) lines.push('⚠️ Claude недоступен (лимит подписки или нет входа) — продолжу позже.');
   for (const e of report.sourceErrors) lines.push(`⚠️ Источник: ${e}`);

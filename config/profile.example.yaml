@@ -9,7 +9,7 @@ candidate:
     Шукаю Fullstack / Backend (Node.js) / Frontend (React) позицію на TypeScript, рівень Middle+/Senior.
     Пріоритет — продукти з AI: LLM, агенти, RAG, MCP, agentic-розробка.
     Тільки віддалено. Українські компанії або компанії з україномовною командою.
-    Англійська — тільки читання технічної документації, розмовної немає. Не підходять вакансії, де потрібні дзвінки, мітинги чи листування англійською, англомовна команда або співбесіда англійською.
+    Англійська — тільки читання технічної документації, розмовної немає. Вакансії з вимогою англійської до B2 показуй, але чесно вказуй, що там потрібна мова.
 
   # Never named in letters: employers, clients, industries. Experience is described neutrally instead.
   # Matching is case-insensitive from the word start, so a stem covers its forms ("факторинг" → "факторингу").
@@ -22,7 +22,7 @@ candidate:
     phone: "+380 00 000 0000"   # first group = country code (shown apart from the number)
 
 filters:
-  englishMax: A2          # reading only: anything needing B1+ is dropped, before Claude (stated level) and after (Claude's estimate)
+  englishMax: B2          # hard ceiling; above candidate.englishLevel = shown with ⚠️ and listed last
   minSalaryUsd: 0         # 0 = don't filter by salary
   remoteOnly: true
   maxAgeDays: 3
@@ -40,11 +40,11 @@ sources:
     enabled: true
     common: {}
     feeds:
-      # English filter is applied by Djinni where it works; keyword queries ignore it, we re-check ourselves.
-      - { primary_keyword: JavaScript, english_level: [no_english, basic, pre] }
-      - { primary_keyword: Node.js,    english_level: [no_english, basic, pre] }
-      - { primary_keyword: Fullstack,  english_level: [no_english, basic, pre] }
-      - { primary_keyword: React.js,   english_level: [no_english, basic, pre] }
+      # No english_level here: B1/B2 vacancies come through and are flagged; the bot applies filters.englishMax itself.
+      - { primary_keyword: JavaScript }
+      - { primary_keyword: Node.js }
+      - { primary_keyword: Fullstack }
+      - { primary_keyword: React.js }
       - { primary_keyword: ML AI, any_of_keywords: "TypeScript Node.js React" }
   dou:
     enabled: true
@@ -54,6 +54,18 @@ sources:
       - { category: Front End }
       - { category: AI/ML, search: TypeScript }
       - { category: AI/ML, search: Node.js }
+
+  robota:
+    enabled: true
+    common: { scheduleId: "3" }   # 3 = віддалена робота
+    feeds:
+      - { keyWords: node.js }
+      - { keyWords: typescript }
+      - { keyWords: react }
+      - { keyWords: javascript }
+      - { keyWords: fullstack }
+      - { keyWords: LLM }
+      - { keyWords: AI engineer }
 
 bot:
   scanIntervalMinutes: 10

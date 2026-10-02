@@ -51,9 +51,11 @@ async function main(): Promise<void> {
     case 'show': {
       const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 5);
       const statuses = (args.find((a) => !/^\d+$/.test(a))?.split(',') ?? ['ready', 'notified']) as Status[];
-      const items = orderQueue(store.listByStatus(statuses)).slice(0, count);
+      const items = orderQueue(store.listByStatus(statuses), profile.candidate.englishLevel).slice(0, count);
       items.forEach((v, index) =>
-        console.log(`${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderDeck({ queue: items, index }, { contact: profile.candidate.contact }).html)}\n`),
+        console.log(
+          `${'─'.repeat(70)}\n${v.key}\n${htmlToTerminal(renderDeck({ queue: items, index }, { contact: profile.candidate.contact, englishLevel: profile.candidate.englishLevel }).html)}\n`,
+        ),
       );
       if (!items.length) console.log('Пусто.');
       break;

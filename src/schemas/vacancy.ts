@@ -1,10 +1,12 @@
 import type { Cefr } from './cefr.ts';
 
-export type SourceId = 'djinni' | 'dou';
+export type SourceId = 'djinni' | 'dou' | 'robota';
 
 export interface VacancyMeta {
   salaryMinUsd?: number;
   salaryMaxUsd?: number;
+  /** Salary as published when it is not in USD (Robota.ua: hryvnias). */
+  salaryText?: string;
   /** English level explicitly required by the posting. */
   english?: Cefr;
   remote?: boolean;

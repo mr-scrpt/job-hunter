@@ -1,0 +1,119 @@
+{
+ "id": 11353981,
+ "name": "AI/LLM Backend Engineer",
+ "companyName": "Анонимный работодатель",
+ "notebookId": 0,
+ "date": "2026-10-01T04:01:00.46",
+ "cityName": "Киев",
+ "scheduleId": 1,
+ "languages": [],
+ "salary": 0,
+ "salaryFrom": null,
+ "salaryTo": null,
+ "salaryComment": "",
+ "description": "<html><head></head><body><p><br></p><p>Ми — міжнародна компанія, яка активно впроваджує <b style=\"font-weight: 700\">AI та автоматизацію у реальні бізнес-процеси</b>.</p><p>Шукаємо <b style=\"font-weight: 700\">AI/LLM Backend Engineer</b>, який буде створювати AI-агентів, інтегрувати LLM-сервіси, працювати з локальними моделями та автоматизувати обробку даних і документів.</p><p>У нас є <b style=\"font-weight: 700\">власний фізичний сервер для розгортання, тестування та оцінювання LLM-моделей</b>, а також корпоративні premium-доступи до AI-сервісів.</p><p>Основні задачі</p><ul><li>Розробка та запуск <b style=\"font-weight: 700\">AI-агентів</b> для автоматизації бізнес-процесів;</li><li>інтеграція <b style=\"font-weight: 700\">OpenAI, Claude, Gemini та інших LLM-сервісів</b>;</li><li>запуск, тестування та порівняння <b style=\"font-weight: 700\">локальних LLM-моделей</b> із cloud-рішеннями;</li><li>розробка логіки та інтеграцій через API;</li><li>автоматизація обробки документів: <b style=\"font-weight: 700\">PDF, Excel, скани, зображення</b>;</li><li>OCR, витягування та трансформація даних у <b style=\"font-weight: 700\">JSON, SQL, CSV</b>;</li><li>інтеграція AI-рішень із внутрішніми системами та CRM;</li><li>робота з <b style=\"font-weight: 700\">PostgreSQL / SQL</b>;</li><li>деплой та підтримка сервісів;</li><li>аналіз логів, пошук причин збоїв та підтримка production-систем.</li></ul><p>Що для нас важливо</p><ul><li>Комерційний досвід <b style=\"font-weight: 700\">Full-Stack розробки</b>;</li><li>впевнене знання <b style=\"font-weight: 700\">Python</b>;</li><li>комерційний досвід роботи з <b style=\"font-weight: 700\">AI/LLM</b>;</li><li>досвід використання AI для автоматизації реальних бізнес-процесів;</li><li>практичний досвід запуску <b style=\"font-weight: 700\">локальних LLM-моделей</b>;</li><li>розуміння переваг та обмежень <b style=\"font-weight: 700\">local LLM у порівнянні з cloud AI-сервісами</b>;</li><li>досвід інтеграцій через <b style=\"font-weight: 700\">REST API</b>;</li><li>досвід роботи з <b style=\"font-weight: 700\">PostgreSQL / SQL</b>;</li><li>досвід деплою та базові навички <b style=\"font-weight: 700\">Linux</b>;</li><li>вміння працювати з логами, знаходити причини помилок та підтримувати production-системи.</li></ul><p>Буде плюсом</p><p><b style=\"font-weight: 700\">FastAPI / Flask / Django / Node.js, Docker / Docker Compose, N8N, Temporal, LangChain, LlamaIndex, CrewAI, RAG, embeddings, vector databases, OCR, Telegram Bot API, Slack Bot API.</b></p><p>Також цінуємо вміння швидко розібратися в чужому коді, зрозуміти структуру проєкту, знайти проблему та розширити існуючу функціональність.</p><p>Що пропонуємо</p><ul><li>Реальні <b style=\"font-weight: 700\">AI/LLM-проєкти</b>, які впроваджуються в бізнес;</li><li>власний фізичний сервер для роботи з локальними LLM;</li><li>корпоративні <b style=\"font-weight: 700\">premium-доступи до AI-сервісів</b>;</li><li>можливість тестувати різні моделі та технології;</li><li>вплив на архітектуру та технічні рішення;</li><li>задачі на перетині <b style=\"font-weight: 700\">AI, backend, automation та data</b>;</li><li>гнучкий формат роботи: <b style=\"font-weight: 700\">remote / office / hybrid</b>;</li><li>конкурентну оплату.</li></ul><p>Шукаємо інженера, якому цікаво <b style=\"font-weight: 700\">не просто працювати з готовими AI-сервісами, а створювати повноцінні AI-рішення — від вибору та тестування моделі до інтеграції й запуску в production.</b></p></body></html>",
+ "clusters": [
+  {
+   "id": 52,
+   "name": "Вид занятости",
+   "groups": [
+    {
+     "id": 7140,
+     "name": "Полная занятость"
+    },
+    {
+     "id": 2004,
+     "name": "Удаленная работа"
+    }
+   ]
+  },
+  {
+   "id": 36,
+   "name": "ПО",
+   "groups": [
+    {
+     "id": 7698,
+     "name": "Microsoft Excel"
+    },
+    {
+     "id": 11459,
+     "name": "MS Office"
+    }
+   ]
+  },
+  {
+   "id": 32,
+   "name": "Язык программирования",
+   "groups": [
+    {
+     "id": 367,
+     "name": "JavaScript"
+    },
+    {
+     "id": 415,
+     "name": "SQL"
+    },
+    {
+     "id": 502,
+     "name": "Python"
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "name": "Тип разработки",
+   "groups": [
+    {
+     "id": 1182,
+     "name": "Web development"
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "name": "Framework Javascript",
+   "groups": [
+    {
+     "id": 2742,
+     "name": "Node.js"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "name": "База данных",
+   "groups": [
+    {
+     "id": 415,
+     "name": "SQL"
+    },
+    {
+     "id": 535,
+     "name": "PostgreSQL"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "name": "Система автоматизации",
+   "groups": [
+    {
+     "id": 393,
+     "name": "CRM"
+    }
+   ]
+  },
+  {
+   "id": 174,
+   "name": "Опыт работы",
+   "groups": [
+    {
+     "id": 14755,
+     "name": "Опыт работы от 5 лет"
+    }
+   ]
+  }
+ ],
+ "isAgency": false,
+ "profLevelId": 3
+}

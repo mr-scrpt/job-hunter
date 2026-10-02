@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { djinniItemToVacancy, parseDjinniJobPage } from '../src/adapters/sources/djinni.ts';
 import { douItemToVacancy, douPageToVacancy, parseDouTitle } from '../src/adapters/sources/dou.ts';
 import { buildUrl } from '../src/adapters/sources/http.ts';
+import { parseKyivTime, robotaDocToVacancy, robotaUrl, robotaVacancyToVacancy, RobotaSource } from '../src/adapters/sources/robota.ts';
 import { parseRss } from '../src/adapters/sources/rss.ts';
 
 const fixture = (name: string) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8');
@@ -86,6 +87,41 @@ describe('vacancy pages (pasted links)', () => {
 
   it('returns undefined for a page without a vacancy', () => {
     assert.equal(douPageToVacancy('<html></html>', '1', 'https://jobs.dou.ua/companies/x/vacancies/1/'), undefined);
+  });
+});
+
+describe('robota.ua', () => {
+  const search = JSON.parse(fixture('robota-search.json')) as { documents: Parameters<typeof robotaDocToVacancy>[0][] };
+  const full = JSON.parse(fixture('robota-vacancy.json')) as Parameters<typeof robotaVacancyToVacancy>[0];
+
+  it('converts Kyiv wall-clock times (summer +3, winter +2)', () => {
+    assert.equal(parseKyivTime('2026-10-01T04:01:00.46').toISOString(), '2026-10-01T01:01:00.000Z');
+    assert.equal(parseKyivTime('2026-12-01T04:01:00').toISOString(), '2026-12-01T02:01:00.000Z');
+  });
+
+  it('maps search hits; anonymous employers have no company', () => {
+    const [anon, named] = search.documents.map(robotaDocToVacancy);
+    assert.equal(anon?.key, 'robota:11353981');
+    assert.equal(anon?.title, 'AI/LLM Backend Engineer');
+    assert.equal(anon?.company, null);
+    assert.equal(anon?.url, 'https://robota.ua/vacancy11353981');
+    assert.ok(named?.company);
+    assert.match(named?.url ?? '', /^https:\/\/robota\.ua\/company\d+\/vacancy11356907$/);
+  });
+
+  it('reads remote and the full description from the vacancy', () => {
+    const v = robotaVacancyToVacancy(full);
+    assert.ok(v);
+    assert.equal(v.meta.remote, true);
+    assert.ok(v.description.length > 1000);
+    assert.doesNotMatch(v.description, /<p>|<b /);
+  });
+
+  it('recognises pasted links in every URL form', () => {
+    const src = new RobotaSource({ enabled: true, common: {}, feeds: [{}] }, undefined as never);
+    for (const url of ['https://robota.ua/company816229/vacancy11324302', 'https://robota.ua/ua/vacancy11324302', 'https://rabota.ua/company1/vacancy7']) assert.ok(src.matches(url), url);
+    assert.ok(!src.matches('https://djinni.co/jobs/1/'));
+    assert.equal(robotaUrl(5), 'https://robota.ua/vacancy5');
   });
 });
 

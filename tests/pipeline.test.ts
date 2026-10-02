@@ -164,7 +164,7 @@ describe('pipeline', () => {
     assert.equal(added.letter, 'letter for djinni:77');
     await addFromUrl(deps, 'https://djinni.co/jobs/77-x/');
     assert.deepEqual(assessed, ['djinni:77']);
-    await assert.rejects(addFromUrl(deps, 'https://example.com/job/1'), /Djinni и DOU/);
+    await assert.rejects(addFromUrl(deps, 'https://example.com/job/1'), /Djinni, DOU и Robota\.ua/);
     assert.equal(store.get('djinni:77')?.score, 30);
   });
 
@@ -234,6 +234,26 @@ describe('pipeline', () => {
     recovered.store.setKv('llm_alert_at', String(Date.now()));
     await runScan(recovered.deps);
     assert.equal(recovered.store.getKv('llm_alert_at'), '');
+  });
+
+  it('keeps vacancies within the English ceiling and revives earlier English rejects when it is relaxed', async () => {
+    const strict = { ...profile, filters: { ...profile.filters, englishMax: 'A2' as const } };
+    const { store, deps, assessed } = setup({
+      items: [vacancy('1', { meta: { english: 'B2' } }), vacancy('2', { meta: { english: 'C1' } }), vacancy('3')],
+      scores: { 'djinni:3': assessment(80, { englishRequired: 'B1' }) },
+    });
+    await runScan({ ...deps, profile: strict });
+    assert.equal(store.get('djinni:1')?.reason, 'english:B2');
+    assert.equal(store.get('djinni:3')?.reason, 'english:B1');
+
+    const relaxed = { ...profile, filters: { ...profile.filters, englishMax: 'B2' as const } };
+    const report = await runScan({ ...deps, profile: relaxed });
+    assert.ok(report !== 'locked');
+    assert.equal(report.revived, 2);
+    assert.equal(store.get('djinni:1')?.status, 'notified');
+    assert.equal(store.get('djinni:3')?.status, 'notified');
+    assert.equal(store.get('djinni:2')?.reason, 'english:C1'); // still above the ceiling
+    assert.deepEqual(assessed.filter((k) => k === 'djinni:3').length, 2); // re-assessed under the new rules
   });
 
   it('refuses to run concurrently', async () => {

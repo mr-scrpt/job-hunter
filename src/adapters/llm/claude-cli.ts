@@ -57,7 +57,8 @@ export class ClaudeCli implements Llm {
   async assess(input: AssessInput): Promise<Assessment> {
     const prompt = [
       section('Профиль кандидата', [
-        `Уровень английского: ${input.englishLevel}. Максимум, который он потянет на собеседовании: ${input.englishMax}.`,
+        `Английский кандидата: ${input.englishLevel} (чтение документации). Вакансии с требованием до ${input.englishMax} включительно он рассматривает: ` +
+          `на score английский не влияет, бот сам пометит такие вакансии. Требование выше ${input.englishMax} — блокер.`,
         input.preferences.trim(),
       ].join('\n')),
       section('Резюме', input.resume),
@@ -166,6 +167,7 @@ export function renderVacancy(v: Vacancy): string {
     `Компания: ${v.company ?? 'не указана'}`,
     `Источник: ${v.source} (${v.url})`,
     m.salaryMinUsd || m.salaryMaxUsd ? `Зарплата: ${m.salaryMinUsd ?? '?'}–${m.salaryMaxUsd ?? '?'} USD/мес` : null,
+    m.salaryText ? `Зарплата: ${m.salaryText}` : null,
     m.english ? `Английский по требованию: ${m.english}` : null,
     m.experienceYears !== undefined ? `Опыт: от ${m.experienceYears} лет` : null,
     m.remote !== undefined ? `Удалённо: ${m.remote ? 'да' : 'нет'}` : null,

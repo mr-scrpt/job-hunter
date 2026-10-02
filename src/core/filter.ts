@@ -1,5 +1,5 @@
 import type { Assessment } from '../schemas/assessment.ts';
-import { cefrRank } from '../schemas/cefr.ts';
+import { cefrRank, type Cefr } from '../schemas/cefr.ts';
 import type { Profile } from '../schemas/profile.ts';
 import type { Vacancy } from '../schemas/vacancy.ts';
 import { normalizeForMatch } from './text.ts';
@@ -58,6 +58,23 @@ export function assessedRejectReason(
   if (required && required !== 'unknown' && cefrRank(required) > cefrRank(filters.englishMax)) return `english:${required}`;
   return null;
 }
+
+/**
+ * The English a vacancy really needs: the stricter of what the page states and what Claude read from the text.
+ * Undefined when neither says anything.
+ */
+export function effectiveEnglish(vacancy: Vacancy & { assessment?: Assessment | null }): Cefr | undefined {
+  const stated = vacancy.meta.english;
+  const inferred = vacancy.assessment?.englishRequired;
+  const levels = [stated, inferred === 'unknown' ? undefined : inferred].filter((l): l is Cefr => Boolean(l));
+  return levels.sort((a, b) => cefrRank(b) - cefrRank(a))[0];
+}
+
+/** Needs more English than the candidate is comfortable with (but is still within the hard ceiling). */
+export const englishStretch = (vacancy: Vacancy & { assessment?: Assessment | null }, comfort: Cefr): Cefr | undefined => {
+  const needed = effectiveEnglish(vacancy);
+  return needed && cefrRank(needed) > cefrRank(comfort) ? needed : undefined;
+};
 
 /** Human (Russian) wording for a rejection reason, for chat notes. */
 export function describeReason(reason: string): string {

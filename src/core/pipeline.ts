@@ -1,5 +1,5 @@
 import type { Assessment } from '../schemas/assessment.ts';
-import { cefrRank } from '../schemas/cefr.ts';
+import { cefrRank, type Cefr } from '../schemas/cefr.ts';
 import type { Profile } from '../schemas/profile.ts';
 import { plural } from './deck.ts';
 import { assessedRejectReason, describeReason, matchKey, rejectReason } from './filter.ts';
@@ -39,6 +39,8 @@ export interface ScanReport {
   deferred: number;
   /** Queued vacancies dropped because they no longer pass the (changed) filters. */
   unqueued: number;
+  /** Earlier rejected for English, re-assessed because the ceiling was relaxed. */
+  revived: number;
   /** Why Claude was unavailable, when it was. */
   llmError?: string;
   sourceErrors: string[];
@@ -74,6 +76,7 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
     errors: 0,
     deferred: 0,
     unqueued: 0,
+    revived: 0,
     sourceErrors: [],
     llmUnavailable: false,
   };
@@ -136,6 +139,13 @@ async function scan(deps: PipelineDeps): Promise<ScanReport> {
 
   // 2b. Filters may have changed since these were queued: drop what no longer fits. Manual picks stay.
   report.unqueued = await recheckQueue(deps, now(), log);
+
+  // 2c. ...and the other way round: vacancies rejected only for English that the (relaxed) ceiling now allows
+  // go back through the pipeline, re-assessed under the current rules.
+  for (const v of reviveRelaxed(deps, now())) {
+    candidates.push(v);
+    report.revived++;
+  }
 
   // 3. LLM: assess, then write letters for the ones worth it.
   const budget = candidates.slice(0, profile.scoring.maxAssessPerRun);
@@ -209,6 +219,22 @@ async function alertIfLlmDown(deps: PipelineDeps, report: ScanReport, now: Date,
   } catch (error) {
     log(`llm alert failed — ${errorText(error)}`);
   }
+}
+
+function reviveRelaxed(deps: PipelineDeps, now: Date): StoredVacancy[] {
+  const { store, profile } = deps;
+  const ceiling = cefrRank(profile.filters.englishMax);
+  const revived: StoredVacancy[] = [];
+  for (const v of store.listByStatus(['filtered', 'low'])) {
+    const level = /^english:([ABC][12])$/.exec(v.reason ?? '')?.[1];
+    if (!level || cefrRank(level as Cefr) > ceiling) continue;
+    const fresh: StoredVacancy = { ...v, status: 'new', reason: null, score: null, assessment: null, attempts: 0 };
+    if (rejectReason(fresh, profile.filters, now)) continue; // too old by now, or another rule bites
+    store.update(v.key, { status: 'new', reason: null, score: null, assessment: null, letter: null, attempts: 0 });
+    store.log('revived', v.key, v.reason);
+    revived.push(fresh);
+  }
+  return revived;
 }
 
 async function recheckQueue(deps: PipelineDeps, now: Date, log: (m: string) => void): Promise<number> {
@@ -309,7 +335,7 @@ export async function deliverReady(store: Store, notifier: Notifier, log: (m: st
 export async function addFromUrl(deps: PipelineDeps, url: string): Promise<StoredVacancy> {
   const { store, sources, llm, profile, resume } = deps;
   const source = sources.find((s) => s.matches(url));
-  if (!source) throw new Error('Понимаю только ссылки на вакансии Djinni и DOU.');
+  if (!source) throw new Error('Понимаю только ссылки на вакансии Djinni, DOU и Robota.ua.');
 
   const fetched = await source.fetchOne(url);
   store.insertIfAbsent(fetched);

@@ -1,5 +1,6 @@
 import { GrammyError, type Api } from 'grammy';
 import type { InlineKeyboardButton } from 'grammy/types';
+import type { Cefr } from '../../schemas/cefr.ts';
 import { anchor, encodeDeckCallback, orderQueue, renderDeck, step, type Contact, type DeckState, type DeckView } from '../../core/deck.ts';
 import type { Notifier, Store, StoredVacancy } from '../../core/ports.ts';
 import { announcement } from '../../core/deck.ts';
@@ -35,12 +36,14 @@ export class DeckController {
   readonly #store: Store;
   readonly #contact: Contact | undefined;
   readonly #scanIntervalMinutes: number | undefined;
+  readonly #englishLevel: Cefr | undefined;
 
-  constructor(api: Api, store: Store, opts: { contact?: Contact; scanIntervalMinutes?: number } = {}) {
+  constructor(api: Api, store: Store, opts: { contact?: Contact; scanIntervalMinutes?: number; englishLevel?: Cefr } = {}) {
     this.#api = api;
     this.#store = store;
     this.#contact = opts.contact;
     this.#scanIntervalMinutes = opts.scanIntervalMinutes;
+    this.#englishLevel = opts.englishLevel;
   }
 
   get chatId(): string | undefined {
@@ -53,7 +56,7 @@ export class DeckController {
   }
 
   queue(): StoredVacancy[] {
-    return orderQueue(this.#store.listByStatus(['notified']));
+    return orderQueue(this.#store.listByStatus(['notified']), this.#englishLevel);
   }
 
   state(): DeckState {
@@ -83,7 +86,12 @@ export class DeckController {
     if (!chatId) return false;
 
     const state = this.state();
-    const view = renderDeck(state, { ...opts, contact: this.#contact, scanIntervalMinutes: this.#scanIntervalMinutes });
+    const view = renderDeck(state, {
+      ...opts,
+      contact: this.#contact,
+      scanIntervalMinutes: this.#scanIntervalMinutes,
+      englishLevel: this.#englishLevel,
+    });
     this.#save(view.focusKey, state.index);
     const markup = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true }, reply_markup: { inline_keyboard: keyboard(view) } };
 
