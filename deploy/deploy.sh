@@ -25,6 +25,7 @@ ssh "$HOST" bash -lc "'
   mkdir -p ~/.config/systemd/user
   ln -sf \"\$PWD/deploy/systemd/job-hunter.service\" ~/.config/systemd/user/job-hunter.service
   systemctl --user daemon-reload
+  systemctl --user enable -q job-hunter
   systemctl --user restart job-hunter
   sleep 4
   systemctl --user is-active job-hunter
