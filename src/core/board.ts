@@ -1,6 +1,8 @@
 import type { Cefr } from '../schemas/cefr.ts';
 import type { SourceId } from '../schemas/vacancy.ts';
 import { effectiveEnglish, englishStretch } from './filter.ts';
+import { detectLanguage, type TextLanguage } from './language.ts';
+import { notesIn, type LetterNote } from './letter-notes.ts';
 import type { StoredVacancy } from './ports.ts';
 
 /**
@@ -31,6 +33,14 @@ export interface BoardItem {
   english: Cefr | null;
   /** Needs more English than the candidate has: listed after the comfortable ones. */
   stretch: boolean;
+  /** Language of the posting itself. */
+  language: TextLanguage;
+  /** Large parts in both Cyrillic and English. */
+  languageMixed: boolean;
+  /** Written in English but states no English level: worth asking what is really needed. */
+  englishUnclear: boolean;
+  /** English notes currently in the letter (toggled by the candidate). */
+  notes: LetterNote[];
   salary: string | null;
   remote: boolean | null;
   applicants: number | null;
@@ -79,6 +89,8 @@ export function toBoardItem(v: StoredVacancy, englishLevel: Cefr): BoardItem | u
   const decision = DECISION[v.status];
   if (!decision) return undefined;
   const a = v.assessment;
+  const english = effectiveEnglish(v) ?? null;
+  const lang = detectLanguage(`${v.title}\n${v.description}`);
   return {
     key: v.key,
     source: v.source,
@@ -91,8 +103,12 @@ export function toBoardItem(v: StoredVacancy, englishLevel: Cefr): BoardItem | u
     score: v.score ?? a?.score ?? 0,
     section: a?.role ?? 'other',
     aiFocus: a?.aiFocus ?? 'none',
-    english: effectiveEnglish(v) ?? null,
+    english,
     stretch: Boolean(englishStretch(v, englishLevel)),
+    language: lang.main,
+    languageMixed: lang.mixed,
+    englishUnclear: (lang.main === 'en' || lang.mixed) && english === null,
+    notes: v.letter ? notesIn(v.letter) : [],
     salary: salaryLabel(v.meta),
     remote: v.meta.remote ?? null,
     applicants: v.meta.applicants ?? null,

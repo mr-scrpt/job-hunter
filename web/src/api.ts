@@ -1,7 +1,8 @@
 import type { Board, BoardItem, Decision, Section } from '../../src/core/board.ts';
+import type { LetterNote } from '../../src/core/letter-notes.ts';
 import type { ChatTurn } from '../../src/core/ports.ts';
 
-export type { Board, BoardItem, ChatTurn, Decision, Section };
+export type { Board, BoardItem, ChatTurn, Decision, LetterNote, Section };
 
 export class ApiError extends Error {
   readonly status: number;
@@ -29,6 +30,7 @@ const key = (k: string) => encodeURIComponent(k);
 export const api = {
   board: () => call<Board>('/api/board'),
   decide: (k: string, decision: Decision) => call<BoardItem>(`/api/vacancies/${key(k)}/decision`, { json: { decision } }),
+  note: (k: string, note: LetterNote, on: boolean) => call<{ letter: string }>(`/api/vacancies/${key(k)}/note`, { json: { note, on } }),
   regenerate: (k: string) => call<{ letter: string }>(`/api/vacancies/${key(k)}/regenerate`, { json: {} }),
   chatHistory: (k: string) => call<{ history: ChatTurn[] }>(`/api/vacancies/${key(k)}/chat`),
   chat: (k: string, message: string) =>

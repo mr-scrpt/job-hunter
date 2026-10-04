@@ -1,4 +1,5 @@
 import { checkedChat, writeCheckedLetter } from './letter.ts';
+import { notesIn, stripNotes, toggleNote, withNotes, type LetterNote } from './letter-notes.ts';
 import type { ChatTurn, Llm, Store, StoredVacancy } from './ports.ts';
 import type { Decision } from './board.ts';
 
@@ -52,20 +53,34 @@ export function decide(store: Store, key: string, decision: Decision): StoredVac
 /** A different take on the letter under the same constraints. */
 export async function regenerateLetter(wb: Workbench, key: string): Promise<string> {
   const vacancy = assessed(load(wb.store, key));
-  const letter = await writeCheckedLetter(
+  const notes = vacancy.letter ? notesIn(vacancy.letter) : [];
+  const fresh = await writeCheckedLetter(
     wb.llm,
     {
       vacancy,
       resume: wb.resume,
       candidateName: wb.candidateName,
       assessment: vacancy.assessment,
-      previousLetter: vacancy.letter ?? undefined,
+      previousLetter: vacancy.letter ? stripNotes(vacancy.letter) : undefined,
       feedback: 'Напиши інший варіант: інша структура і формулювання, інші акценти з резюме. Обсяг і правила ті самі.',
     },
     wb.neverMention,
   );
+  const letter = withNotes(fresh, notes);
   wb.store.update(key, { letter });
   wb.store.log('regenerated', key);
+  return letter;
+}
+
+/** Adds or removes one of the fixed English paragraphs; no Claude call, the text is exact. */
+export function setLetterNote(store: Store, key: string, note: LetterNote, on: boolean): string {
+  const vacancy = load(store, key);
+  if (!vacancy.letter) throw new ActionError('У вакансии ещё нет отклика', 409);
+  const letter = toggleNote(vacancy.letter, note, on);
+  if (letter !== vacancy.letter) {
+    store.update(key, { letter });
+    store.log(on ? 'note_added' : 'note_removed', key, { note });
+  }
   return letter;
 }
 
@@ -82,6 +97,8 @@ export async function chatAboutVacancy(wb: Workbench, key: string, message: stri
   if (!text) throw new ActionError('Пустое сообщение');
   const vacancy = assessed(load(wb.store, key));
   if (!vacancy.letter) throw new ActionError('У вакансии ещё нет отклика', 409);
+  // The fixed English paragraphs are the candidate's call: the model edits the letter without them, they are put back after.
+  const notes = notesIn(vacancy.letter);
 
   const result = await checkedChat(
     wb.llm,
@@ -90,7 +107,7 @@ export async function chatAboutVacancy(wb: Workbench, key: string, message: stri
       resume: wb.resume,
       candidateName: wb.candidateName,
       assessment: vacancy.assessment,
-      letter: vacancy.letter,
+      letter: stripNotes(vacancy.letter),
       history: wb.store.recentChat(key, HISTORY_TURNS),
       message: text,
     },
@@ -99,13 +116,14 @@ export async function chatAboutVacancy(wb: Workbench, key: string, message: stri
 
   wb.store.addChatTurn(key, { role: 'user', text });
   wb.store.addChatTurn(key, { role: 'assistant', text: result.letter ? `${result.reply}\n[отклик обновлён]` : result.reply });
-  if (result.letter) {
-    wb.store.update(key, { letter: result.letter });
+  const letter = result.letter ? withNotes(result.letter, notes) : null;
+  if (letter) {
+    wb.store.update(key, { letter });
     wb.store.log('chat_edit', key, { message: text });
   } else {
     wb.store.log('chat_answer', key, { message: text });
   }
-  return { reply: result.reply, letter: result.letter || null, history: wb.store.recentChat(key, 50) };
+  return { reply: result.reply, letter, history: wb.store.recentChat(key, 50) };
 }
 
 /** Prevents two Claude jobs on the same vacancy at once (double taps, two tabs). */

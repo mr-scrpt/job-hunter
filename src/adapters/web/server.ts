@@ -5,7 +5,8 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { ActionError, chatAboutVacancy, decide, KeyedLock, regenerateLetter, type Workbench } from '../../core/actions.ts';
+import { ActionError, chatAboutVacancy, decide, KeyedLock, regenerateLetter, setLetterNote, type Workbench } from '../../core/actions.ts';
+import { LETTER_NOTES } from '../../core/letter-notes.ts';
 import { BOARD_STATUSES, buildBoardItems, kyivDay, toBoardItem, type Board } from '../../core/board.ts';
 import type { Cefr } from '../../schemas/cefr.ts';
 import type { StoredVacancy } from '../../core/ports.ts';
@@ -32,6 +33,7 @@ const COOKIE = 'jh_key';
 const DecisionBody = z.object({ decision: z.enum(['open', 'applied', 'skipped']) });
 const ChatBody = z.object({ message: z.string().trim().min(1).max(2000) });
 const AddBody = z.object({ url: z.url() });
+const NoteBody = z.object({ note: z.enum(LETTER_NOTES), on: z.boolean() });
 
 const sameSecret = (a: string, b: string): boolean => {
   const x = Buffer.from(a);
@@ -107,6 +109,15 @@ export function createWebApp(deps: WebDeps): Hono {
     try {
       const letter = await lock.run(key, () => regenerateLetter(deps, key));
       return c.json({ letter });
+    } catch (error) {
+      return fail(c, error);
+    }
+  });
+
+  app.post('/api/vacancies/:key/note', async (c) => {
+    try {
+      const { note, on } = NoteBody.parse(await c.req.json());
+      return c.json({ letter: setLetterNote(store, c.req.param('key'), note, on) });
     } catch (error) {
       return fail(c, error);
     }

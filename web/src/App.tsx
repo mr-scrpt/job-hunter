@@ -1,5 +1,6 @@
 import { Link2, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { notesIn } from '../../src/core/letter-notes.ts';
 import { api, type Board, type BoardItem, type Decision, type Section } from './api.ts';
 import { groupBySection, longDay, relativeTime, SECTION_LABEL, visibleItems, type Filter } from './board.ts';
 import { DayStrip } from './components/DayStrip.tsx';
@@ -295,7 +296,7 @@ export function App() {
               board={board}
               onClose={() => setSelectedKey(null)}
               onDecide={(d) => void decide(selected, d)}
-              onLetter={(letter) => patchItem(selected.key, { letter })}
+              onLetter={(letter) => patchItem(selected.key, { letter, notes: notesIn(letter) })}
               onError={(text) => setToast({ text, error: true })}
             />
           </aside>

@@ -1,6 +1,6 @@
-import { Check, ExternalLink, Loader2, RefreshCw, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { Check, ExternalLink, Languages, Loader2, RefreshCw, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { api, type Board, type BoardItem, type ChatTurn, type Decision } from '../api.ts';
+import { api, type Board, type BoardItem, type ChatTurn, type Decision, type LetterNote } from '../api.ts';
 import { longDay, SECTION_LABEL } from '../board.ts';
 import { Facts, ScoreBadge } from './Badges.tsx';
 import { CopyButton } from './CopyButton.tsx';
@@ -17,9 +17,22 @@ interface Props {
 
 const SUGGESTIONS = ['Короче', 'Добавь про NestJS', 'Сделай теплее', 'Что за компания?', 'Стоит ли откликаться?'];
 
+const NOTE_BUTTONS: Array<{ note: LetterNote; label: string; hint: string }> = [
+  { note: 'level', label: 'Мой уровень английского', hint: 'Абзац: читаю документацию и веду переписку, без опыта живого общения' },
+  { note: 'clarify', label: 'Уточнить требование', hint: 'Абзац-вопрос: какой английский нужен, будут ли созвоны' },
+];
+
+/** Why the English block is worth a look for this vacancy (or null when nothing points at English). */
+function englishHint(item: BoardItem, level: string): string | null {
+  if (item.stretch) return `Требуют ${item.english}, у тебя ${level}.`;
+  if (item.englishUnclear) return 'Текст на английском, а уровень не указан — возможно, английский нужен.';
+  if (item.english) return `Указан английский ${item.english}.`;
+  return null;
+}
+
 /** Everything needed to apply: the letter, contact fields for the form, actions, and a chat that edits the letter. */
 export function DetailPanel({ item, board, onClose, onDecide, onLetter, onError }: Props) {
-  const [busy, setBusy] = useState<'regen' | 'chat' | null>(null);
+  const [busy, setBusy] = useState<'regen' | 'chat' | 'note' | null>(null);
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [message, setMessage] = useState('');
   const [flash, setFlash] = useState<string | null>(null);
@@ -59,6 +72,19 @@ export function DetailPanel({ item, board, onClose, onDecide, onLetter, onError 
     }
   };
 
+  const toggleNote = async (note: LetterNote, on: boolean) => {
+    setBusy('note');
+    try {
+      const { letter } = await api.note(item.key, note, on);
+      onLetter(letter);
+      setFlash(on ? 'Абзац добавлен' : 'Абзац убран');
+    } catch (e) {
+      onError(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const send = async (text = message) => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
@@ -81,6 +107,7 @@ export function DetailPanel({ item, board, onClose, onDecide, onLetter, onError 
     }
   };
 
+  const hint = englishHint(item, board.englishLevel);
   const contact = board.contact;
   const phoneLocal = contact?.phone?.replace(/^\+?380\s*/, '');
 
@@ -147,9 +174,9 @@ export function DetailPanel({ item, board, onClose, onDecide, onLetter, onError 
             {item.letter && <span className="text-xs text-slate-400 tabular-nums">{item.letter.length} симв.</span>}
             {flash && <span className="text-xs font-medium text-emerald-600">{flash}</span>}
           </div>
-          <div className={`relative rounded-xl ring-1 ring-slate-200 transition ${busy ? 'opacity-50' : ''}`}>
+          <div className={`relative rounded-xl ring-1 ring-slate-200 transition ${busy && busy !== 'note' ? 'opacity-50' : ''}`}>
             <p className="letter p-3.5 text-[15px] leading-relaxed text-slate-800">{item.letter ?? 'Отклика пока нет.'}</p>
-            {busy && (
+            {busy && busy !== 'note' && (
               <div className="absolute inset-0 grid place-items-center">
                 <Loader2 className="size-6 animate-spin text-slate-500" />
               </div>
@@ -170,6 +197,38 @@ export function DetailPanel({ item, board, onClose, onDecide, onLetter, onError 
               <RefreshCw className={`size-4 ${busy === 'regen' ? 'animate-spin' : ''}`} /> Другой вариант
             </button>
           </div>
+
+          {/* English: fixed paragraphs the candidate adds when they decide it's needed */}
+          {item.letter && (
+            <div className={`mt-3 rounded-xl p-3 ${hint ? 'bg-amber-50 ring-1 ring-amber-200' : 'bg-slate-50'}`}>
+              <div className="mb-2 flex items-start gap-1.5 text-sm">
+                <Languages className={`mt-0.5 size-4 shrink-0 ${hint ? 'text-amber-700' : 'text-slate-400'}`} />
+                <span className={hint ? 'text-amber-900' : 'text-slate-500'}>
+                  <span className="font-medium">Английский в отклике.</span> {hint ?? 'Требований не видно — обычно не нужно.'}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {NOTE_BUTTONS.map(({ note, label, hint: title }) => {
+                  const on = item.notes.includes(note);
+                  return (
+                    <button
+                      key={note}
+                      type="button"
+                      title={title}
+                      aria-pressed={on}
+                      disabled={busy !== null}
+                      onClick={() => void toggleNote(note, !on)}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:opacity-50 ${
+                        on ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {on ? <Check className="size-4" /> : <span className="text-base leading-none">+</span>} {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Chat */}
