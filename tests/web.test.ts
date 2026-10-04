@@ -186,6 +186,15 @@ describe('web api', () => {
     assert.equal((await from('2.2.2.2', KEY)).status, 302, 'other clients are not affected');
   });
 
+  it('serves the app manifest and icons without the key, nothing else', async () => {
+    const { get } = web(undefined, { staticDir: new URL('../web/public', import.meta.url).pathname });
+    // staticDir without index.html: static serving is off, so public paths fall through to 404, not 401.
+    assert.notEqual((await get('/manifest.webmanifest', {})).status, 401);
+    assert.notEqual((await get('/icon-192.png', {})).status, 401);
+    assert.equal((await get('/index.html', {})).status, 401);
+    assert.equal((await get('/api/board', {})).status, 401);
+  });
+
   it('marks the cookie Secure only behind https', async () => {
     const { get } = web();
     assert.doesNotMatch((await get(`/?k=${KEY}`, {})).headers.get('set-cookie') ?? '', /Secure/);

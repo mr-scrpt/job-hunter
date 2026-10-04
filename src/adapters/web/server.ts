@@ -32,6 +32,8 @@ export interface WebDeps extends Workbench {
 const COOKIE = 'jh_key';
 /** Wrong keys per client per window before it is locked out until the window ends. */
 const MAX_FAILURES = 10;
+/** App identity files: browsers fetch the manifest and icons without cookies, and they reveal nothing. */
+const PUBLIC_FILES = new Set(['/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/favicon.ico']);
 const FAILURE_WINDOW_MS = 15 * 60_000;
 const DecisionBody = z.object({ decision: z.enum(['open', 'applied', 'skipped']) });
 const ChatBody = z.object({ message: z.string().trim().min(1).max(2000) });
@@ -69,6 +71,7 @@ export function createWebApp(deps: WebDeps): Hono {
 
   // Access: ?k=<key> once (sets a year-long cookie), then the cookie. The board is reachable from the internet through the tunnel.
   app.use('*', async (c, next) => {
+    if (PUBLIC_FILES.has(c.req.path)) return next();
     const id = clientId(c);
     const at = now().getTime();
     if (lockedOut(id, at)) return c.text('Слишком много попыток, попробуй позже', 429);
