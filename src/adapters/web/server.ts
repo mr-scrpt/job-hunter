@@ -30,6 +30,9 @@ export interface WebDeps extends Workbench {
 }
 
 const COOKIE = 'jh_key';
+/** Wrong keys per client per window before it is locked out until the window ends. */
+const MAX_FAILURES = 10;
+const FAILURE_WINDOW_MS = 15 * 60_000;
 const DecisionBody = z.object({ decision: z.enum(['open', 'applied', 'skipped']) });
 const ChatBody = z.object({ message: z.string().trim().min(1).max(2000) });
 const AddBody = z.object({ url: z.url() });
@@ -49,17 +52,39 @@ export function createWebApp(deps: WebDeps): Hono {
   const historyMs = (deps.historyDays ?? 30) * 86_400_000;
   const app = new Hono();
 
-  // Access: ?k=<key> once (sets a year-long cookie), then the cookie. LAN-only app, but still not open to anyone on Wi-Fi.
+  // Wrong-key attempts per client (Cloudflare passes the real IP; on the LAN it's absent and everyone shares one bucket).
+  const failures = new Map<string, { count: number; since: number }>();
+  const clientId = (c: Context): string => c.req.header('cf-connecting-ip') ?? 'lan';
+  const lockedOut = (id: string, at: number): boolean => {
+    const f = failures.get(id);
+    if (f && at - f.since > FAILURE_WINDOW_MS) failures.delete(id);
+    return (failures.get(id)?.count ?? 0) >= MAX_FAILURES;
+  };
+  const recordFailure = (id: string, at: number): void => {
+    const f = failures.get(id) ?? { count: 0, since: at };
+    f.count++;
+    failures.set(id, f);
+    if (f.count === MAX_FAILURES) log(`web: too many wrong keys from ${id}, locked for ${FAILURE_WINDOW_MS / 60_000} min`);
+  };
+
+  // Access: ?k=<key> once (sets a year-long cookie), then the cookie. The board is reachable from the internet through the tunnel.
   app.use('*', async (c, next) => {
+    const id = clientId(c);
+    const at = now().getTime();
+    if (lockedOut(id, at)) return c.text('Слишком много попыток, попробуй позже', 429);
     const fromQuery = c.req.query('k');
+    if (fromQuery && !sameSecret(fromQuery, deps.accessKey)) recordFailure(id, at);
     if (fromQuery && sameSecret(fromQuery, deps.accessKey)) {
-      setCookie(c, COOKIE, deps.accessKey, { httpOnly: true, sameSite: 'Lax', path: '/', maxAge: 365 * 86_400 });
+      // Secure only over https (the tunnel); plain http on the LAN would drop a Secure cookie.
+      const secure = c.req.header('x-forwarded-proto') === 'https' || new URL(c.req.url).protocol === 'https:';
+      setCookie(c, COOKIE, deps.accessKey, { httpOnly: true, secure, sameSite: 'Lax', path: '/', maxAge: 365 * 86_400 });
       const url = new URL(c.req.url);
       url.searchParams.delete('k');
       return c.redirect(url.pathname + url.search);
     }
     const cookie = getCookie(c, COOKIE);
     if (cookie && sameSecret(cookie, deps.accessKey)) return next();
+    if (cookie) recordFailure(id, at);
     if (c.req.path.startsWith('/api/')) return c.json({ error: 'Нет доступа: открой ссылку из Telegram-бота' }, 401);
     return c.html(
       '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Вакансии</title>' +

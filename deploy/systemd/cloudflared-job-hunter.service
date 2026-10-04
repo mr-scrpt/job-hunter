@@ -1,0 +1,16 @@
+[Unit]
+Description=Cloudflare Tunnel for the job-hunter board (public https → 127.0.0.1:8790)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# TUNNEL_TOKEN=... (connector token of the remotely-managed tunnel; ingress lives in Cloudflare), file mode 600.
+EnvironmentFile=%h/.local/share/secrets/cloudflared-job-hunter.env
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

@@ -54,12 +54,14 @@ Frontend work: `npm run serve` in one terminal, `npm run dev:web` in another (Vi
 
 ### Web board
 
-One process serves the API and the built page on `web.port` (8790), on all interfaces of the LAN.
+One process serves the API and the built page on `web.port` (8790), on all interfaces of the LAN. From the internet it is reachable through a Cloudflare Tunnel (see Always-on host).
 
-- **Access**: a random key is created on first run in `~/.local/share/secrets/job-hunter-web.key`. Open the board once via the link with `?k=<key>` (the bot's `/open` sends it); the browser then keeps a year-long cookie. Without the key every page and API call answers 401.
+- **Access**: a random key is created on first run in `~/.local/share/secrets/job-hunter-web.key`. Open the board once via the link with `?k=<key>` (the bot's `/open` sends it); the browser then keeps a year-long cookie. Without the key every page and API call answers 401; 10 wrong keys from one client lock it out for 15 minutes. Behind https the cookie is `Secure`.
 - **Layout**: on a wide screen three columns (Fullstack, Backend, Frontend; "Другое" below when Claude can't place a role). On a phone one column at a time with tabs. In each column: vacancies within your English first, then a divider "Английский выше A2" and the rest. Inside each group, by score.
 - **Calendar**: the strip on top shows the last days with how many vacancies were published each day and a blue badge for the ones still undecided. Opens on today when there is something new today, otherwise on all days.
 - **Filters**: Новые / Откликнулся / Не интересно / Все.
+- **Tags**: `Текст UA/RU/EN` is the language of the posting itself (`UA+EN` for bilingual ones). `EN B2` is the required English; `⚠️` when it is above yours. `EN ?` marks an English posting that states no level — worth asking.
+- **English in the letter**: letters never mention English on their own. Two buttons under the letter add fixed paragraphs, verbatim: "Мой уровень английского" (reads documentation and writes, no live conversation) and "Уточнить требование" (asks which level is really needed, are there calls). They sit before the closing line, toggle off without a trace, and survive "Другой вариант" and chat edits — the model edits the letter without them and they are put back.
 - **A vacancy**: the side panel (full screen on a phone) has Claude's take (summary, pluses, minuses), the contact fields for the application form (tap to copy; the phone is copied without +380), the letter with copy and "Другой вариант", and a chat: "короче", "добавь про NestJS" rewrite the letter; "что за компания?" gets an answer. Actions stay pinned to the bottom. After "Откликнулся" or "Не интересно" the panel moves to the next undecided vacancy, and the toast offers "Отменить".
 - **Add by link**: a Djinni / DOU / Robota.ua URL is fetched, assessed and given a letter regardless of filters.
 - **Проверить**: runs a scan now. The board refreshes every minute and when the tab comes back to the foreground.
@@ -86,7 +88,8 @@ Production runs on the Proxmox VM `claude-station` (ssh alias `station`, user `a
 - First time: copy the personal files that are not in git — `config/profile.yaml`, the CV (path from the profile), `~/.local/share/secrets/job-hunter.token` — and enable lingering (`loginctl enable-linger`) so the user service runs without a login.
 - Claude on the box: an interactive `claude` → `/login` is enough while the box keeps running (the CLI refreshes its own token). If it stays idle long enough for the refresh token to lapse, scans stop and the bot sends "⚠️ Claude недоступен" (every 6 h) — log in again. More robust alternative: `claude setup-token` (1-year token) stored as `CLAUDE_CODE_OAUTH_TOKEN=...` in `~/.local/share/secrets/claude-oauth.env` (mode 600); the unit loads it.
 - Updates: commit, then `deploy/deploy.sh` (pushes HEAD to the `station` remote, `npm ci`, builds the board, tests, restarts the unit).
-- Board: `http://192.168.1.63:8790` (set `web.publicUrl` in the profile so Telegram links use it).
+- Board: `https://jobs.hostkitchen.pp.ua` (Cloudflare Tunnel `job-hunter-station`, remotely managed: ingress `jobs.hostkitchen.pp.ua → http://127.0.0.1:8790`, everything else 404) and `http://192.168.1.63:8790` on the LAN. The connector token lives in `~/.local/share/secrets/cloudflared-job-hunter.env` (`TUNNEL_TOKEN=...`, mode 600); `deploy.sh` enables `cloudflared-job-hunter.service` wherever that file exists. `web.publicUrl` in the profile makes Telegram links use the domain.
+- Desktop app: `omarchy webapp install "Station Jobs" https://jobs.hostkitchen.pp.ua <icon.png>`.
 - Only one bot may poll Telegram per token: stop the service on the workstation before starting it elsewhere.
 
 ## CLI

@@ -178,6 +178,20 @@ describe('web api', () => {
     assert.equal(viaLink.headers.get('location'), '/');
   });
 
+  it('locks a client out after repeated wrong keys, per client', async () => {
+    const { get } = web();
+    const from = (ip: string, k: string) => get(`/api/board?k=${k}`, { 'cf-connecting-ip': ip });
+    for (let i = 0; i < 10; i++) assert.equal((await from('1.1.1.1', `guess${i}`)).status, 401);
+    assert.equal((await from('1.1.1.1', KEY)).status, 429, 'even the right key waits out the lockout');
+    assert.equal((await from('2.2.2.2', KEY)).status, 302, 'other clients are not affected');
+  });
+
+  it('marks the cookie Secure only behind https', async () => {
+    const { get } = web();
+    assert.doesNotMatch((await get(`/?k=${KEY}`, {})).headers.get('set-cookie') ?? '', /Secure/);
+    assert.match((await get(`/?k=${KEY}`, { 'x-forwarded-proto': 'https' })).headers.get('set-cookie') ?? '', /Secure/);
+  });
+
   it('serves the board with sections, decisions and today in Kyiv', async () => {
     const { store, get } = web();
     seed(store, '1', { a: { role: 'fullstack', score: 80 } });

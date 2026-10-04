@@ -23,10 +23,12 @@ ssh "$HOST" bash -lc "'
   mise exec -- npm run build --silent >/dev/null
   mise exec -- npm test 2>&1 | grep -E \"^ℹ (pass|fail)\"
   mkdir -p ~/.config/systemd/user
-  ln -sf \"\$PWD/deploy/systemd/job-hunter.service\" ~/.config/systemd/user/job-hunter.service
+  for unit in deploy/systemd/*.service; do ln -sf \"\$PWD/\$unit\" ~/.config/systemd/user/; done
   systemctl --user daemon-reload
   systemctl --user enable -q job-hunter
   systemctl --user restart job-hunter
+  # The public tunnel runs only where its token is (the always-on host).
+  if [ -f ~/.local/share/secrets/cloudflared-job-hunter.env ]; then systemctl --user enable -q --now cloudflared-job-hunter; fi
   sleep 4
   systemctl --user is-active job-hunter
   git log --oneline -1
